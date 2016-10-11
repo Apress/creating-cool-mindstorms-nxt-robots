@@ -1,0 +1,35 @@
+#ifndef _J5_COMM_NXC
+#define _J5_COMM_NXC
+
+#include "J5Defs.nxc"
+#include "HSlib.nxc"
+
+// this function send commands to the slave
+// returns false if no the ack is not received
+sub Remote(short cmd, short ack)
+{
+   byte answer = 0;
+   unsigned long comm_timer;
+   byte c;
+   // send the command
+   SendHSNumber(cmd);
+   // if an ack is requested, first wait for "command received"
+   if (ack != ACK_NONE)
+   {
+      // repeat until the requested ack is received
+      until(answer == ack)
+      {
+         // repeat the command if the slave did not responded correctly
+         if (answer == ACK_ERR)
+         {
+            SendHSNumber(cmd);
+         }
+         until(ReceiveHSNumber(answer));
+      }
+   }
+}
+
+
+#endif
+
+

@@ -1,0 +1,218 @@
+#define HALF_STEP 540
+#define FULL_STEP 1080
+#define RIGHT_LEG OUT_B
+#define LEFT_LEG OUT_A
+#define BOTH_LEGS OUT_AB
+#define EYES IN_1
+
+#define NEAR 12 //cm
+#define FAR  40 //cm
+#define LEFT -1
+#define RIGHT 1
+#define FORWARD 0
+
+#define WALK_SPEED 90
+#define ALIGN_SPEED 50
+#define TURN_TIME 3000
+
+#define TURN_FILE "Turn.rso"
+#define LEFT_FILE "Left.rso"
+#define RIGHT_FILE "Right.rso"
+#define FORWARD_FILE "Forward.rso"
+
+mutex Rmotor, Lmotor, display;
+
+bool obstacle, Rreset, Lreset;
+
+int direction;
+
+void Smessage(string msg)
+{
+   Acquire(display);
+   TextOut(0,LCD_LINE5,"              ");
+   TextOut(0,LCD_LINE5,msg);
+   Release(display);
+}
+
+void Nmessage(int n)
+{
+   Acquire(display);
+   TextOut(0,LCD_LINE5,"              ");
+   NumOut(0,LCD_LINE5,n);
+   Release(display);
+}
+
+sub AnnounceDir ( int dir )
+{
+   if (dir!=FORWARD)
+   {
+      PlayFileEx (TURN_FILE, 4, false);
+      Wait(450);
+   }
+   if (dir==LEFT)
+   {
+      PlayFileEx (LEFT_FILE, 4, false);
+      Smessage("TURN LEFT");
+   }
+   if (dir==FORWARD)
+   {
+      PlayFileEx (FORWARD_FILE, 4, false);
+      Smessage("FORWARD");
+   }
+   if (dir==RIGHT)
+   {
+      PlayFileEx (RIGHT_FILE, 4, false);
+      Smessage("TURN RIGHT");
+   }
+   Wait(500);
+}
+
+
+sub Biped_init ()
+{
+   ResetRotationCount (BOTH_LEGS);
+   SetSensorLowspeed (EYES);
+   obstacle = false;
+   Rreset = false;
+   Lreset = false;
+   direction = FORWARD;
+}
+
+sub RealignLegs ()
+{
+   Rreset = true;
+   Lreset = true;
+   Smessage("REALIGN LEGS");
+   while (Rreset || Lreset) Wait(100);
+   Wait(50);
+   Smessage("DONE");
+}
+
+sub AcquireLegs ()
+{
+   Acquire(Rmotor);
+   Acquire(Lmotor);
+}
+
+sub ReleaseLegs ()
+{
+   Off (BOTH_LEGS);
+   Release(Rmotor);
+   Release(Lmotor);
+}
+
+task main ()
+{
+   Biped_init();
+}
+
+task Sight ()
+{
+   Follows(main);
+   int d;
+   while (true)
+   {
+      d = SensorUS (EYES);
+      Acquire (display);
+      TextOut (5, LCD_LINE1, "distance:        ");
+      NumOut (70, LCD_LINE1, d);
+      Release (display);
+      Wait(10);
+      //hysteresis cycle
+      if (d < NEAR) obstacle = true;
+      else if (d > FAR ) obstacle = false;
+   }
+}
+
+task Walk ()
+{
+   int timer;
+   Follows (main);
+   while (true)
+   {
+      AcquireLegs();
+      AnnounceDir (direction);
+      OnFwdSyncEx (BOTH_LEGS, WALK_SPEED, sign(direction)*90, RESET_NONE);
+      if (direction==FORWARD)
+      {
+         while (!obstacle) Wait(50);
+      }
+      else
+      {
+         timer = 0;
+         while (!obstacle && timer<TURN_TIME)
+         {
+            timer++;
+         }
+      }
+      ReleaseLegs();
+      RealignLegs();
+      if (obstacle)
+      {
+         Smessage("BACKWARD");
+         AcquireLegs();
+         OnRevSyncEx (BOTH_LEGS, WALK_SPEED, 0, RESET_NONE);
+         while (obstacle) Wait(50);
+         ReleaseLegs();
+         RealignLegs();
+      }
+      if (direction==FORWARD) direction = 1-2*Random(2);
+      else direction = FORWARD;
+   }
+}
+
+task AlignRightLeg ()
+{
+   Follows(main);
+   long right_count;
+   while (true)
+   {
+      while (!Rreset) Wait(100);
+      Acquire (Rmotor);
+      right_count = abs(MotorRotationCount (RIGHT_LEG) % FULL_STEP);
+
+      if (right_count<HALF_STEP)
+         OnRev (RIGHT_LEG, ALIGN_SPEED);
+      else
+         OnFwd (RIGHT_LEG, ALIGN_SPEED);
+      
+      while (right_count>0)
+      {
+         right_count = abs(MotorRotationCount (RIGHT_LEG) % FULL_STEP);
+      }
+      
+      Off(RIGHT_LEG);
+      Release (Rmotor);
+      Rreset = false;
+      Wait(10);
+   }
+}
+
+task AlignLeftLeg ()
+{
+   Follows(main);
+   long left_count;
+   while (true)
+   {
+      while (!Lreset) Wait(100);
+      Acquire (Lmotor);
+      left_count = abs(MotorRotationCount (LEFT_LEG) % FULL_STEP);
+      
+      if (left_count<HALF_STEP)
+         OnRev (LEFT_LEG, ALIGN_SPEED);
+      else
+         OnFwd (LEFT_LEG, ALIGN_SPEED);
+
+      while (left_count>0)
+      {
+         left_count = abs(MotorRotationCount (LEFT_LEG) % FULL_STEP);
+      }
+      
+      Off(LEFT_LEG);
+      Release (Lmotor);
+      Lreset = false;
+      Wait(10);
+   }
+}
+
+

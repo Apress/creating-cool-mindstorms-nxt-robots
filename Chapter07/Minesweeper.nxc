@@ -1,0 +1,232 @@
+#define LIGHT IN_1
+#define TOUCH IN_3
+#define USONIC IN_4
+#define WHEELS OUT_AC
+#define GRABBER OUT_B
+#define LEFT_WHEEL OUT_A
+#define RIGHT_WHEEL OUT_C
+#define ABYSS (SensorUS(USONIC)>25)
+#define GROUND (SensorUS(USONIC)<15)
+#define WHEEL_RADIUS 28
+#define SEMIAXIS 77
+#define MINE (Sensor(LIGHT)<threshold)
+#define WaitButton(b) until(ButtonPressed(b,true)); while(ButtonPressed(b,true))
+
+//#define COMPASS
+//#define TEST
+
+int threshold;
+bool  found;
+short heading;
+
+#ifdef COMPASS
+byte bufLSWrite1[] = {0x2, 0x42};
+
+int Compass(short port)
+{
+   int value;
+   byte outbuf[];
+   int count = 2;
+   if (I2CBytes(port, bufLSWrite1, count, outbuf))
+      return outbuf[0]+outbuf[0]+outbuf[1];
+   else
+      return 0;
+}
+#endif
+
+sub ZeroGrabberOLD ()
+{
+   if ( Sensor(TOUCH) ) return;
+   OnRev ( GRABBER, 100 );
+   until ( Sensor(TOUCH) );
+   Wait(200);
+   Off(GRABBER);
+   Wait(200);
+   Float(GRABBER);
+}
+
+sub ZeroGrabber()
+{
+   int t;
+   t = MotorRotationCount(GRABBER);
+   OnRev(GRABBER,40);
+   Wait(400);
+   while( abs(t-MotorRotationCount(GRABBER))>14 )
+   {
+      t = MotorRotationCount(GRABBER);
+      Wait(50);
+   }
+   Off(GRABBER);
+   Wait(200);
+   Float(GRABBER);
+}
+
+sub Init()
+{
+   SetSensorLight(LIGHT);
+   SetSensorTouch(TOUCH);
+   SetSensorLowspeed(USONIC);
+   found = false;
+   RotateMotorExPID(GRABBER,60,180,0,false,false,20,20,50);
+   ZeroGrabber();
+   threshold = Sensor(LIGHT) - 3;
+#ifdef COMPASS
+   heading = Compass(USONIC);
+#endif
+   Wait(200);
+}
+
+
+sub EdgeBounce()
+{
+   RotateMotorEx(WHEELS,70,580,99,true,true);  //turn
+}
+
+sub Search()
+{
+   found = false;
+   int offset = 0;
+   GraphicOut (26, 10, "!.ric", true);
+   until (found)
+   {
+      //search RIGHT
+      OnFwdRegEx(LEFT_WHEEL, 40, OUT_REGMODE_SYNC+OUT_REGMODE_SPEED, RESET_ALL);
+      OnRevRegEx(RIGHT_WHEEL, 40, OUT_REGMODE_SYNC+OUT_REGMODE_SPEED, RESET_ALL);
+      until ( MINE || (MotorTachoCount(LEFT_WHEEL)>100) );
+      OffEx(WHEELS, RESET_NONE);
+      Wait(500);
+      if (ABYSS)
+      {
+         EdgeBounce();
+      }
+      if (MINE)
+      {
+         found = true;
+         OffEx(WHEELS, RESET_ALL);
+         return;
+      }
+      //search LEFT
+      OnFwdRegEx(RIGHT_WHEEL, 40, OUT_REGMODE_SYNC+OUT_REGMODE_SPEED, RESET_NONE);
+      OnRevRegEx(LEFT_WHEEL, 40, OUT_REGMODE_SYNC+OUT_REGMODE_SPEED, RESET_NONE);
+      until ( MINE || (MotorTachoCount(LEFT_WHEEL)<-100) ) ;
+      OffEx(WHEELS, RESET_NONE);
+      Wait(500);
+      if (ABYSS)
+      {
+         EdgeBounce();
+      }
+      if (MINE)
+      {
+         found = true;
+         OffEx(WHEELS, RESET_ALL);
+         return;
+      }
+      // turn back to center
+      OnFwdRegEx(LEFT_WHEEL, 40, OUT_REGMODE_SYNC+OUT_REGMODE_SPEED, RESET_NONE);
+      OnRevRegEx(RIGHT_WHEEL, 40, OUT_REGMODE_SYNC+OUT_REGMODE_SPEED, RESET_NONE);
+      until ( MINE || (MotorTachoCount(LEFT_WHEEL)>0) ) ;
+      OffEx(WHEELS, RESET_ALL);
+      Wait(500);
+      if (ABYSS)
+      {
+         EdgeBounce();
+      }
+      if (MINE)
+      {
+         found = true;
+         return;
+      }
+      //advance a bit
+      RotateMotorEx(WHEELS,50,40,0,true,true);
+      OffEx(WHEELS,RESET_ALL);
+      Wait(100);
+   }
+}
+
+/*
+      top
+      ____
+     |O O |.
+left |O O || right
+     |O O ||
+     |O_O_||
+     \____\|
+     bottom
+*/
+sub CenterMine()
+{
+  int x,y;
+  //find top edge
+  OnFwdSync(WHEELS,30,0);
+  while(MINE);
+  Off(WHEELS);
+  //find bottom edge
+  y = MotorRotationCount(LEFT_WHEEL);
+  OnRevSync(WHEELS,30,0);
+  Wait(150);
+  until(MINE);
+  Wait(50);
+  while(MINE);
+  Off(WHEELS);
+  y -= MotorRotationCount(LEFT_WHEEL);
+  //center vertically
+  RotateMotor(WHEELS,40,y/2);
+  //find right edge
+  OnFwdRegEx(LEFT_WHEEL, 20, OUT_REGMODE_SYNC+OUT_REGMODE_SPEED, RESET_NONE);
+  OnRevRegEx(RIGHT_WHEEL, 20, OUT_REGMODE_SYNC+OUT_REGMODE_SPEED, RESET_NONE);
+  while(MINE);
+  Off(WHEELS);
+  //find left edge
+  x = MotorRotationCount(LEFT_WHEEL);
+  OnFwdRegEx(RIGHT_WHEEL, 20, OUT_REGMODE_SYNC+OUT_REGMODE_SPEED, RESET_NONE);
+  OnRevRegEx(LEFT_WHEEL, 20, OUT_REGMODE_SYNC+OUT_REGMODE_SPEED, RESET_NONE);
+  Wait(150);
+  until(MINE);
+  Wait(50);
+  while(MINE);
+  OffEx(WHEELS,RESET_ALL);
+  x -= MotorRotationCount(LEFT_WHEEL);
+  //center horizontally
+  RotateMotorEx(WHEELS,50,x/2,-100,true,true);
+}
+
+sub Grab()
+{
+   GraphicOut (16, 6, "bomb.ric", true);
+   PlayFile ("! Attention.rso");
+   Wait(100);
+   RotateMotorEx(WHEELS, 50, 110, 0, true, true);
+   ResetAllTachoCounts(WHEELS);
+   Wait(300);
+   RotateMotor(GRABBER,100,1460); //close
+   RotateMotorExPID(GRABBER,-100,1000,0,false,false,30,20,50); //open
+   ZeroGrabber(); //find limit
+}
+
+task main ()
+{
+   Init();
+   TextOut(5,LCD_LINE2,"Detector threshold");
+   NumOut(5,LCD_LINE3,threshold);
+   Wait(600);
+   while ( true )
+   {
+      Search();
+      CenterMine();
+      Grab();
+#ifdef COMPASS
+      ClearScreen();
+      until (abs(Compass(USONIC)-heading)<2)
+      {
+         OnRevRegEx(LEFT_WHEEL, sign(Compass(USONIC)-heading)*10, OUT_REGMODE_SYNC+OUT_REGMODE_SPEED, RESET_NONE);
+         OnFwdRegEx(RIGHT_WHEEL, sign(Compass(USONIC)-heading)*10, OUT_REGMODE_SYNC+OUT_REGMODE_SPEED, RESET_NONE);
+         TextOut(10,LCD_LINE3,"                       ");
+         NumOut(10,LCD_LINE3,abs(Compass(USONIC)-heading));
+      }
+      OffEx(WHEELS,RESET_ALL);
+#endif
+#ifndef COMPASS
+      if (ABYSS) EdgeBounce();
+#endif
+   }
+}

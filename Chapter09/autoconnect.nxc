@@ -1,0 +1,78 @@
+
+/*****************************************************************************
+**        BLUETOOTH AUTOCONNECT LIBRARY
+ *****************************************************************************
+ Author: Daniele Benedettelli 6 Jan 2008
+ ( based on John Hansens's NXT enhanced firmware )
+
+Usage:
+      Just call the ConnectNXT(name,channel)
+      from your program to connect the slave
+      NXT called "name" on BT channel "channel".
+      This function returns true if the connection is
+      established, false otherwise.
+
+Utility function:
+      The StrCmp(a,b) function returns true if the passed
+      strings a and b are equal, false otherwise.
+*/
+#ifndef __AUTOCONNECT_LIB__NXC
+#define __AUTOCONNECT_LIB__NXC
+
+
+bool StrCmp (string a, string b)
+{
+   bool equal = false;
+   byte strlen1 = StrLen(a);
+   byte strlen2 = StrLen(b);
+   byte minlen = strlen1;
+   if (strlen2<minlen) minlen = strlen2;
+   for (int i = 0; i<minlen; i++)
+   {
+      if (SubStr(a,i,i+1) == SubStr(b,i,i+1)) equal = true;
+   }
+   return equal;
+}
+
+bool ConnectNXT ( const string name , byte channel )
+{
+   // this function tries to connect the named NXT to channel
+   // returning true if succedeed, false otherwise
+   byte index, trials;
+   byte event;
+   // search the slave NXT name in the devices
+   // listed in "My Contacts" of Bluetooth menu
+//   TextOut(0,LCD_LINE5,"devices:");
+//   NumOut(60,LCD_LINE5, BTDeviceCount());
+   for ( byte i=0; i<BTDeviceCount(); i++ )
+   {
+//      TextOut(0,8*(7-i),BTDeviceName(i));
+      if (StrCmp(BTDeviceName(i), name)) index = i;
+   }
+ //  NumOut(0,LCD_LINE8,index);
+ //  TextOut(50,8*(7-index),"*");
+
+
+   // prepare the arguments to connect the slave NXT
+   CommExecuteFunctionType cefArgs;
+   cefArgs.Cmd = INTF_CONNECT;
+   cefArgs.Param1 = index;
+   cefArgs.Param2 = channel;
+   trials = 0;
+   event = 0;
+   // try to connect slave NXT for 20 times
+   while (event==0)
+   {
+      SysCommExecuteFunction(cefArgs);
+      Wait(500);
+      trials++;
+      if (cefArgs.Result == LDR_BTCONNECTFAIL) event = 1;
+      if (trials>20) event = 2;
+   }
+   if (event==2) return false;
+   if (event==1) return true;
+}
+
+#endif
+
+

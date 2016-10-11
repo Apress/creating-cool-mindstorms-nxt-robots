@@ -1,0 +1,17 @@
+#include "NXCDefs.h"
+
+task main ()
+{
+   SetSensorLowspeed(IN_4);
+   while (true)
+   {
+      OnFwd(OUT_A,75);
+      while (SensorUS(IN_4)>20);
+      Off(OUT_A);
+      PlayFile("uuu.rso");
+      Wait(800);
+      OnRev(OUT_A,75);
+      while (SensorUS(IN_4)<30);
+      Off(OUT_A);
+   }
+}

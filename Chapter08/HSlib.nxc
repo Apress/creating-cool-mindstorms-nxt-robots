@@ -1,0 +1,85 @@
+#ifndef _HS_LIB_NXC
+#define _HS_LIB_NXC
+//********************************************************
+// High speed communication library for NXC
+// Author: Daniele Benedettelli, 11 Jan 2008
+// Contributors: John Hansen, John Barnes
+//********************************************************
+
+// Connecting two NXTs using a 6-wire cable between their ports 4,
+// you can send strings and numbers at high speed
+
+// initialize the port 4
+void SetHSPort()
+{
+   // no argument, since the only high speed port is the number 4
+   SetSensorType(IN_4, SENSOR_TYPE_HIGHSPEED);
+   SetHSState(HS_INITIALISE);
+   SetHSFlags(HS_UPDATE);
+}
+
+// send a string
+void SendHSString(const string msg)
+{
+   byte mlen = ArrayLen(msg);
+   SetHSOutputBuffer(0, mlen, msg);
+   SetHSOutputBufferOutPtr(0);
+   SetHSOutputBufferInPtr(mlen);
+   SetHSState(HS_SEND_DATA);
+   SetHSFlags(HS_UPDATE); //send it
+}
+
+// send an integer
+void SendHSNumber(const int value)
+{
+   string msg = NumToStr(value);
+   SendHSString(msg);
+}
+
+// receive a string
+bool ReceiveHSString(string &s)
+{
+   byte inPtr = 0;
+   int timeout = 0;
+   byte event = 0;
+   string buffer;
+   SetHSInputBufferInPtr(0);
+   SetHSInputBufferOutPtr(0);
+   while(event == 0)
+   {
+      inPtr = HSInputBufferInPtr();
+      timeout++;
+      if (inPtr!=0) event = 1;
+      if (timeout>MS_500) event = 2;
+   }
+   if (event == 1)
+   {
+      GetHSInputBuffer(0, inPtr, buffer);
+      s = buffer;
+      return true;
+   }
+   else
+   {
+      return false;
+   }
+}
+
+// receiver an integer
+bool ReceiveHSNumber(int &n)
+{
+   string buffer;
+   if (ReceiveHSString(buffer))
+   {
+      n = StrToNum(buffer);
+      return true;
+   }
+   else
+      return false;
+}
+
+#endif
+
+
+
+
+

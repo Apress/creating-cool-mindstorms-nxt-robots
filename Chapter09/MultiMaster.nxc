@@ -1,0 +1,295 @@
+//Remote Control with two analog joysticks and two buttons
+
+// include Bluetooth autoconnect library
+#include "autoconnect.nxc"
+
+// I/O devices ports
+#define R_JOYSTICK OUT_C
+#define L_JOYSTICK OUT_A
+#define JOYSTICKS OUT_AC
+#define R_TOUCH IN_4
+#define L_TOUCH IN_1
+#define BT_CONN 1
+
+// change this constant according to your slave NXT name
+#define SLAVE_NXT "J5M"
+// this is the name of the slave program to be started
+#define SLAVE_PROGRAM "MultiSlave.rxe"
+
+// position of the graphics on screen
+#define L_INFO_PX 25
+#define R_INFO_PX 75
+
+// commands constant definitions
+#define STOP   0
+#define FWD1   1
+#define FWD2   2
+#define FWD3   3
+#define FWD4   4
+#define REV1   5
+#define REV2   6
+#define REV3   7
+#define REV4   8
+
+// joystick angle thresholds
+#define THR0   3
+#define THR1   5
+#define THR2   10
+#define THR3   15
+#define THR4   20
+
+// possible modes
+#define MODE0 0
+#define MODE1 1
+#define MODE2 2
+#define MODE3 3
+#define MODE4 4
+#define MODE5 5
+#define MODE6 6
+#define MODE7 7
+#define MODE8 8
+#define MODE9 9
+
+// change MODE_LAST to set the number of modes:
+// setting it to MODE1, the remote will have 2 modes
+// setting it to MODE4, the remote will have 5 modes
+// ...
+// setting it to MODE9, the remote will have 10 modes
+#define MODE_LAST MODE1
+
+// joysticks related global variables
+int Lpos, Rpos, Lzero, Rzero;
+mutex motor_sem;
+byte mode = MODE0;
+
+// this function returns true if the
+// Bluetooth connection with robot exists;
+// otherwise it tries to make the connection
+// using the autoconnection library;
+// if even this fails,
+// it displays some instructions
+// and returns false
+bool BTConnection(byte conn, const string name)
+{
+   bool connection_exists;
+   if (BluetoothStatus(conn)==NO_ERR)
+   {
+      connection_exists = true;
+   }
+   else
+   {
+      // call the autoconnection library function
+      if (ConnectNXT(name,conn)==true)
+      {
+         // if connection was successful
+         // the function returns true
+         PlayTone(2000,20);
+         connection_exists = true;
+      }
+      else
+      {
+         ClearScreen();
+         TextOut(0,LCD_LINE1,"You must connect");
+         TextOut(0,LCD_LINE2,"the slave NXT on");
+         TextOut(0,LCD_LINE3,"BT channel 1");
+         TextOut(0,LCD_LINE4,"using the menu");
+         TextOut(0,LCD_LINE5,"of this NXT.");
+         Wait(4000);
+         connection_exists = false;
+      }
+   }
+   return connection_exists;
+}
+
+// this subroutine brings the joystick, which motor
+// is attached to the specified port, to the central
+// position.
+inline sub ZeroJoyStick(byte port)
+{
+   int t;
+   t = MotorRotationCount(port);
+   // start motor
+   OnRev(port,50);
+   Wait(80);
+   // until a stall is detected
+   while( abs(t-MotorRotationCount(port))>5 )
+   {
+      t = MotorRotationCount(port);
+      Wait(20);
+   }
+   // stop motor
+   Off(port);
+}
+
+// this function increase the mode value
+// and resets it if it reaches the max allowed value
+void ChangeMode()
+{
+   mode++;
+   if (mode>MODE_LAST) mode = MODE0;
+}
+
+// this function returns
+// 1 if right sensor is pressed,
+// 2 if left sensor is pressed,
+// 0 if both sensors are pressed, but changes mode
+byte GetTriggers()
+{
+   byte triggers;
+   // combine right and left sensor Boolean readings
+   triggers = 2*Sensor(L_TOUCH) + Sensor(R_TOUCH);
+   if (triggers == 3)
+   {
+      PlayFile("! Attention.rso");
+      ChangeMode();
+      triggers = 0;
+      // wait the user to release the triggers
+      // to avoid machine gun effect
+      while(Sensor(L_TOUCH) || Sensor(R_TOUCH));
+   }
+   else return triggers;
+}
+
+// this function converts the position of the joystick,
+// passed as argument, into a command value
+// applying a serie of thresholds
+short AngleToCommand (short pos)
+{
+   if ( pos <  -THR4 ) return FWD4;
+   if ( pos >= -THR4 && pos < -THR3 ) return FWD3;
+   if ( pos >= -THR3 && pos < -THR2 ) return FWD2;
+   if ( pos >= -THR2 && pos < -THR1 ) return FWD1;
+   if ( pos >= -THR1 && pos <  THR1 ) return STOP;
+   if ( pos >=  THR1 && pos <  THR2 ) return REV1;
+   if ( pos >=  THR2 && pos <  THR3 ) return REV2;
+   if ( pos >=  THR3 && pos <  THR4 ) return REV3;
+   if ( pos >=  THR4 ) return REV4;
+}
+
+//  this subroutine displays informations
+// about the command being sent
+sub ShowCommands(byte Lc, byte Rc, byte trig)
+{
+   string arrows[];
+   string Rstring, Lstring;
+   // fill the arrows array with the listed strings
+   ArrayBuild(arrows,"o",">",">>",">>>",">>>>","<","<<","<<<","<<<<");
+   ClearScreen();
+   // add text on NXT screen to guide the user
+   // in the various modes
+   TextOut(0,LCD_LINE8,"mode:        ");
+   NumOut(30,LCD_LINE8,mode);
+   if (mode == MODE0)
+   {
+      //display help text for mode 0
+   }
+   if (mode == MODE1)
+   {
+      //display help text for mode 1
+   }
+   if (mode == MODE2)
+   {
+      //display help text for mode 2
+   }
+   //
+   // [...]
+   //
+   // prepare the Xstring to be shown,
+   // according to the right and left command values.
+   // The Xstring is an element of the arrows array.
+   Rstring = arrows[Rc];
+   Lstring = arrows[Lc];
+   // show the string on the screen.
+   TextOut(R_INFO_PX,LCD_LINE2,Rstring);
+   TextOut(L_INFO_PX-5*StrLen(Lstring),LCD_LINE2,Lstring);
+   if (trig&1) TextOut(R_INFO_PX-5,LCD_LINE3,"*");
+   if (trig&2) TextOut(L_INFO_PX-5,LCD_LINE3,"*");
+}
+
+// this function build the command to be sent
+// encoding all the informations in a single number
+// and send the command via Bluetooth
+void SendCommand(byte Lcmd, byte Rcmd, byte triggers)
+{
+   short out;
+         // 1000's: remote mode
+         // 100's: analog channel 1,
+         // 10's: analog channel 2
+         // 1's: digital channels 3 and 4
+   out = mode*1000 + Lcmd*100 + Rcmd*10 + triggers;
+   TextOut(0,LCD_LINE6,"                ");
+   NumOut(0,LCD_LINE6,out);
+   SendRemoteNumber(BT_CONN,1,out);
+}
+
+task main()
+{
+   TextOut(0,LCD_LINE2,"Connecting...");
+   if (BTConnection(BT_CONN,SLAVE_NXT)==false)
+   {
+      // if BT connection with robot
+      // is not established, stop the whole program
+      Stop(true);
+   }
+   else
+   {
+      ClearScreen();
+      // start the selected program on slave NXT
+      RemoteStartProgram(BT_CONN,SLAVE_PROGRAM);
+   }
+   // the main ends, leaving execution to the other tasks
+}
+
+// bring right joystick to its limit position
+task RightJoystickLimit()
+{
+   Follows(main);
+   ZeroJoyStick(R_JOYSTICK);
+}
+
+// bring left joystick to its limit position
+task LeftJoystickLimit()
+{
+   Follows(main);
+   ZeroJoyStick(L_JOYSTICK);
+}
+
+// this task reads the joystick positions continuosly
+// and produces the feedback to keep them vertical
+task RemoteEngine()
+{
+   short command, Rcmd, Lcmd;
+   byte triggers;
+
+   // wait for these tasks to end
+   Follows(main,RightJoystickLimit,LeftJoystickLimit);
+
+   // rotate the motors by 110 degrees to bring the joystick vertical
+   RotateMotorPID(JOYSTICKS,70,110,70,40,70);
+   // store the current position (central) into the Xzero variable
+   Rzero = MotorRotationCount(R_JOYSTICK);
+   Lzero = MotorRotationCount(L_JOYSTICK);
+   while(true)
+   {
+      // read the joysticks angle from central position
+      Rpos = MotorRotationCount(R_JOYSTICK) - Rzero;
+      Lpos = MotorRotationCount(L_JOYSTICK) - Lzero;
+      // actuate the feedback on josticks
+      // to bring them to the center again
+      OnRev(R_JOYSTICK,sign(Rpos)*8);
+      OnRev(L_JOYSTICK,sign(Lpos)*8);
+      // if the angle is about 0, then float the motors
+      if (-THR0 <= Rpos && Rpos <= THR0)  Float(R_JOYSTICK);
+      if (-THR0 <= Lpos && Lpos <= THR0)  Float(L_JOYSTICK);
+      // convert the joysticks angle to speed commands
+      Lcmd = AngleToCommand(Lpos);
+      Rcmd = AngleToCommand(Rpos);
+      // read the triggers state
+      triggers = GetTriggers();
+      // show various informations on screen
+      ShowCommands(Lcmd, Rcmd, triggers);
+      // send the command using Bluetooth
+      SendCommand(Lcmd,Rcmd,triggers);
+      Wait(50);
+   }
+}

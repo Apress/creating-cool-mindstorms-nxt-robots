@@ -1,0 +1,260 @@
+///////////////////////////////////////////////////////////////////////////
+//                    DEFINITIONS and MACROS                             //
+///////////////////////////////////////////////////////////////////////////
+
+#define TOUCH IN_3 //short cable
+#define SONAR  IN_1 //mid cable
+#define MIC IN_4 //mid_cable
+
+#define NEAR 20
+
+#define LEGS OUT_C
+#define HEAD OUT_A
+
+#define LEFT 0
+#define CENTER 1
+#define RIGHT 2
+
+#define TURN_RIGHT 1
+#define TURN_LEFT -1
+#define WALK 0
+#define STOP 5
+
+#define SLOW 1
+#define NORMAL 0
+
+#define STEP_PAUSE 300
+#define STEP_SPEED 50
+#define STEP 40
+#define STEP_TURN 90
+
+#define WaitButton(b) while(ButtonPressed(b,true));  \
+                      until(ButtonPressed(b,true))
+                      
+#define OBSTACLE (SensorUS(SONAR)<NEAR)
+
+// global variables
+
+int weightState, legsState, runState;
+
+/* LEGS ANGLES TABLE*/
+/*
+
+oldState/newState ->
+    |
+    V       |    LEFT    | CENTER |    RIGHT    |
+LEFT        |     0      |   -S   |    -2*S     |
+CENTER      |     S      |   0    |     -S      |
+RIGHT       |    2*S     |   S    |     0       |
+
+*/
+const int legsAngles[] = {     0      , -STEP_TURN, -2*STEP_TURN,
+                             STEP_TURN,     0     ,   -STEP_TURN,
+                           2*STEP_TURN,  STEP_TURN,     0       };
+
+///////////////////////////////////////////////////////////////////////////
+//                    MECHANICAL SUB ROUTINES                            //
+///////////////////////////////////////////////////////////////////////////
+
+sub CenterLegs(){
+    int t;
+    t = MotorRotationCount(LEGS); //save actual position
+    OnFwd(LEGS,55);
+    Wait(100);
+    while( abs(t-MotorRotationCount(LEGS))>15 ) // if position does not change
+    {                                          // more than spec angle in spec time
+       t = MotorRotationCount(LEGS);
+       Wait(100);
+    }
+    Off(LEGS);
+    RotateMotor(LEGS,50,-140);
+    Wait(200);
+    legsState = CENTER;
+}
+
+sub CenterHead ()
+{
+   #define CNT_SPEED  50
+      OnFwd(HEAD,CNT_SPEED);
+      Wait(400);
+      Off(HEAD);
+      if (Sensor(TOUCH)) //head was already at right
+      {
+         OnRev(HEAD,CNT_SPEED);
+         while (Sensor(TOUCH));
+         Off(HEAD);
+         RotateMotor(HEAD,CNT_SPEED,-40);//offset fix
+      }
+      else if (!Sensor(TOUCH)) //head was already at left
+      {
+         OnRev(HEAD,CNT_SPEED);
+         until (Sensor(TOUCH));
+         Off(HEAD);
+         RotateMotor(HEAD,CNT_SPEED,60);
+      }
+   weightState = CENTER;
+}
+
+#define LEAN_SPEED 65
+sub Lean (int newState){
+   if ( weightState != newState )
+   {
+
+      if (weightState==CENTER) //head is actually at center
+      {
+         if (newState==RIGHT) OnFwd (HEAD,LEAN_SPEED);
+         if (newState==LEFT) OnRev (HEAD,LEAN_SPEED);
+         until (Sensor(TOUCH));
+         Off (HEAD);
+      }
+
+      if (weightState==LEFT)  //head is actually at left
+      {
+         if (newState==CENTER)
+         {
+            OnFwd(HEAD,LEAN_SPEED);
+            while (Sensor(TOUCH));
+            Off(HEAD);
+            RotateMotor(HEAD,LEAN_SPEED,40);
+         }
+         if (newState==RIGHT)
+         {
+            OnFwd(HEAD,LEAN_SPEED);
+            while (Sensor(TOUCH));
+            until (Sensor(TOUCH));
+            Off(HEAD);
+         }
+      }
+
+      if (weightState==RIGHT) //head is actually at right
+      {
+         if (newState==CENTER)
+         {
+            OnRev(HEAD,LEAN_SPEED);
+            while (Sensor(TOUCH));
+            Off(HEAD);
+            RotateMotor(HEAD,LEAN_SPEED,-30);
+         }
+         if (newState==LEFT)
+         {
+            OnRev(HEAD,LEAN_SPEED);
+            while (Sensor(TOUCH));
+            until (Sensor(TOUCH));
+            Off(HEAD);
+         }
+      }
+      weightState = newState;
+   }
+}
+
+
+sub Step(int newState, bool slow)
+{
+   int speed = 65;
+   if(newState!=legsState)
+   {
+      if (slow) speed = 45;
+      RotateMotorPID(LEGS,speed,legsAngles[newState+3*legsState],30,20,80);
+      legsState = newState;
+   }
+}
+
+void ATST_init() {
+   SetSensorTouch(TOUCH);
+   SetSensorLowspeed(SONAR);
+   SetSensorSound(MIC);
+   CenterLegs();
+   CenterHead();
+   Wait(500);
+}
+
+///////////////////////////////////////////////////////////////////////////
+//                           WALKING FUNCTIONS                           //
+///////////////////////////////////////////////////////////////////////////
+
+sub GoStraight()
+{
+   ClearScreen();
+   TextOut(0,LCD_LINE2, "Walking");
+   //PlayFile("forward.rso");
+   //Wait(300);
+   until( OBSTACLE ){
+      Lean(LEFT);
+      Step(RIGHT,NORMAL);
+      if(OBSTACLE) break;
+      Wait(300);
+      Lean(RIGHT);
+      Step(LEFT,NORMAL);
+      Wait(300);
+   }
+   PlayFile("laser1.rso");
+}
+
+sub TurnRight(short times)
+{
+  int counter = 0;
+  ClearScreen();
+  TextOut(0,LCD_LINE2, "Turning right");
+  //PlayFile("right.rso");
+  //Wait(300);
+  while( counter < times ){
+     Step(RIGHT,SLOW);
+     Wait(200);
+     Lean(RIGHT);
+     Step(CENTER,NORMAL);
+     Lean(CENTER);
+     Wait(400);
+     counter++;
+  }
+}
+
+sub TurnLeft(short times)
+{
+   int counter = 0;
+   ClearScreen();
+   TextOut(0,LCD_LINE2, "Turning left");
+   //PlayFile("left.rso");
+   //Wait(300);
+   while( counter < times ){
+      Step(LEFT,SLOW);
+      Wait(200);
+      Lean(LEFT);
+      Step(CENTER,NORMAL);
+      Lean(CENTER);
+      Wait(400);
+      counter++;
+   }
+}
+
+///////////////////////////////////////////////////////////////////////////
+//                         MAIN TASK                                     //
+///////////////////////////////////////////////////////////////////////////
+
+task main ()
+{
+   ATST_init();
+   int action;
+   
+   while(true) {
+
+      if(OBSTACLE)
+         runState = 1-2*(Random(2)); // 1, -1
+      else
+         runState = WALK;
+         
+      switch(runState) {
+         case TURN_RIGHT:
+            TurnRight(9);
+            break;
+         case TURN_LEFT:
+            TurnLeft(9);
+            break;
+         case WALK:
+            GoStraight();
+            break;
+      }
+      CenterHead();
+      CenterLegs();
+   }
+}
+

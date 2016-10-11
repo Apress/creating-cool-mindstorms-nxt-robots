@@ -1,0 +1,103 @@
+// aliases
+#define R_LEGS OUT_A
+#define L_LEGS OUT_C
+#define LEGS OUT_AC
+#define HEAD OUT_B
+#define EYES IN_2
+#define MIC IN_1
+#define LINE IN_3
+#define NEAR 10
+#define FAR 30
+#define TURN_TIME SEC_4
+#define IN -1
+#define OUT 1
+
+// global variables
+short head_state;
+unsigned long start_time;
+
+// Subroutine to move head IN or OUT
+sub MoveHead ( short position )
+{
+   int t;
+   // move head only if the desired position
+   // is different from the actual state
+   if (head_state != position)
+   {
+      t = MotorRotationCount(HEAD);
+      PlayFile("! Blips 19.rso");
+      // start motor in desired direction
+      OnFwd(HEAD,60*sign(position));
+      Wait(80);
+      // sense if the motor is stalled
+      while( abs(t-MotorRotationCount(HEAD))>7 )
+      {
+         t = MotorRotationCount(HEAD);
+         Wait(50);
+      }
+      Off(HEAD);
+      
+      // update head state with actual position
+      head_state = position;
+   }
+}
+
+task main(){
+   //init sensors
+   SetSensorSound(MIC);
+   SetSensorLowspeed(EYES);
+   SetSensorLight(LINE);
+
+   // extract head
+   head_state = IN;
+   MoveHead(OUT);
+
+   while (true)
+   {
+      //go straight
+      OnFwdSync(LEGS,100,0);
+      ClearScreen();
+      TextOut(30,LCD_LINE3,"Go!");
+      
+      //wait for an object to become near
+      while (SensorUS(EYES) > NEAR);
+      
+      //stop and retract the head
+      Float (LEGS);
+      MoveHead(IN);
+      
+      //back up
+      OnRevSync(LEGS,100,0);
+      ClearScreen();
+      TextOut(20,LCD_LINE3,"Run away...");
+      Wait(SEC_3);
+      
+      //wait for the object to get far enough
+      while (SensorUS(EYES) < FAR);
+      
+      //stop and extract head
+      Float (LEGS);
+      MoveHead(OUT);
+      
+      // choose a random direction and turn
+      if (Random(2)==1)
+      {
+         ClearScreen();
+         TextOut(30,LCD_LINE3,"Turn right");
+         OnRevSync(LEGS,100,80);
+      }
+      else
+      {
+         ClearScreen();
+         TextOut(30,LCD_LINE3,"Turn left");
+         OnRevSync(LEGS,100,-80);
+      }
+      
+      // save actual time to use as offset later
+      start_time = CurrentTick();
+
+      //wait for the timer to elapse or another object to come near
+      until ( (CurrentTick()-start_time)>TURN_TIME || SensorUS(EYES) < NEAR );
+      Float(LEGS);
+   }
+}

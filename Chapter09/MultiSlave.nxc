@@ -1,0 +1,302 @@
+//remote controlled robot
+
+// I/O devices ports
+#define R_WHEEL OUT_B
+#define L_WHEEL OUT_C
+#define WHEELS OUT_BC
+#define TOOL OUT_A
+#define BT_CONN 1
+
+// position of the graphics on screen
+#define L_INFO_PX 25
+#define R_INFO_PX 75
+
+// possible speed values
+#define SPEED1 (20)
+#define SPEED2 (50)
+#define SPEED3 (70)
+#define SPEED4 (100)
+
+// commands constant definitions
+#define STOP   0
+#define FWD1   1
+#define FWD2   2
+#define FWD3   3
+#define FWD4   4
+#define REV1   5
+#define REV2   6
+#define REV3   7
+#define REV4   8
+
+// change this constant
+// to get the robot going forward
+// when getting a FWD command
+// (allowed values are 1 or -1)
+#define DIRECTION -1
+
+// this function returns true if the
+// Bluetooth connection with robot exists,
+// otherwise it displays some instructions
+// and returns false
+bool CheckBTConnection(int conn)
+{
+   bool connection_exists;
+   if (BluetoothStatus(conn)==NO_ERR)
+   {
+      connection_exists = true;
+   }
+   else
+   {
+      ClearScreen();
+      TextOut(0,LCD_LINE1,"You must connect");
+      TextOut(0,LCD_LINE2,"this NXT on");
+      TextOut(0,LCD_LINE3,"BT channel 1");
+      TextOut(0,LCD_LINE4,"using the menu");
+      TextOut(0,LCD_LINE5,"of the remote");
+      TextOut(0,LCD_LINE6,"control NXT.");
+      Wait(4000);
+      connection_exists = false;
+   }
+   return connection_exists;
+}
+
+// this function convert the received command
+// opcode into the corresponding motor speed
+short DecodeSpeed(short cmd)
+{
+   short speed;
+   if ( cmd == STOP ) speed = 0;
+   if ( cmd == FWD1 ) speed = SPEED1;
+   if ( cmd == FWD2 ) speed = SPEED2;
+   if ( cmd == FWD3 ) speed = SPEED3;
+   if ( cmd == FWD4 ) speed = SPEED4;
+   if ( cmd == REV1 ) speed = -SPEED1;
+   if ( cmd == REV2 ) speed = -SPEED2;
+   if ( cmd == REV3 ) speed = -SPEED3;
+   if ( cmd == REV4 ) speed = -SPEED4;
+   return speed*sign(DIRECTION);
+}
+
+// this function convert the received command
+// opcode into the corresponding direction.
+// This is handy to use joysticks as one-shot digital controls
+short DecodeDir(short cmd)
+{
+   if ( cmd == STOP ) return 0;
+   if ( cmd == FWD1 ) return 1;
+   if ( cmd == FWD2 ) return 1;
+   if ( cmd == FWD3 ) return 1;
+   if ( cmd == FWD4 ) return 1;
+   if ( cmd == REV1 ) return -1;
+   if ( cmd == REV2 ) return -1;
+   if ( cmd == REV3 ) return -1;
+   if ( cmd == REV4 ) return -1;
+}
+
+// this subroutine actuates the command received
+// * if continuous is true, the TOOL motor is run
+// while the remote buttons are pressed,
+// * if continuous is false, the TOOL motor is run stepping
+sub Mode0Actions(byte Lc, byte Rc, byte fun, bool continuous)
+{
+   // float wheels if both Xc are equal to STOP
+   if (Rc == STOP) Float(R_WHEEL);
+   if (Lc == STOP) Float(L_WHEEL);
+   if (Rc == Lc)
+   {
+      // if the speed of the wheels is the same,
+      // run motors in sync
+      OnFwdSync(WHEELS,DecodeSpeed(Rc),0);
+   }
+   else
+   {
+      // else run motor at the speed
+      // given by the DecodeSpeed function
+      OnFwd(R_WHEEL,DecodeSpeed(Rc));
+      OnFwd(L_WHEEL,DecodeSpeed(Lc));
+   }
+   // if the commands can be continuous
+   if (continuous)
+   {
+      switch (fun)
+      {
+         case 0:
+            Off(TOOL);
+         break;
+         case 1:
+            OnFwd(TOOL,50);
+         break;
+
+         case 2:
+            OnRev(TOOL,100);
+         break;
+      }
+   }
+   // if the commands are one-shot
+   else
+   {
+      switch (fun)
+      {
+         case 1:
+            PlayTone(1000,10);
+            RotateMotorPID(TOOL,100,180,50,30,70);
+         break;
+
+         case 2:
+            PlayTone(2000,10);
+            RotateMotorPID(TOOL,100,-360,50,30,70);
+         break;
+      }
+   }
+}
+
+// these are a kind of state variables to allow the one-shot
+// functions activation (avoid machine-gun effect)
+short oldRf,oldLf;
+
+// similar to Mode 0 Actions, but you can use joysticks
+// to perform one-shot functions, as you do with the triggers
+
+sub Mode1Actions(byte Lc, byte Rc, byte fun, bool continuous)
+{
+   short R_action, L_action;
+   R_action = DecodeDir(Rc);
+   L_action = DecodeDir(Lc);
+   // function activated by the right joystick
+   // can be one shot or continuous
+   if ( (R_action!=oldRf) || continuous )
+   {
+      if (R_action>0)
+      {
+         PlayTone(1000,10);
+      }
+      if (R_action<0)
+      {
+         PlayTone(1500,10);
+      }
+   }
+   // function activated by the left joystick
+   // can be one shot or continuous
+   if ( (L_action!=oldLf) || continuous )
+   {
+      if (L_action>0)
+      {
+         PlayTone(2000,10);
+      }
+      if (L_action<0)
+      {
+         PlayTone(3000,10);
+      }
+   }
+   oldRf = R_action;
+   oldLf = L_action;
+   
+   // if the commands can be continuous
+   if (continuous)
+   {
+      switch (fun)
+      {
+         case 0:
+            Off(TOOL);
+         break;
+         case 1:
+            OnFwd(TOOL,50);
+         break;
+
+         case 2:
+            OnRev(TOOL,50);
+         break;
+      }
+   }
+   // if the commands are one-shot
+   else
+   {
+      switch (fun)
+      {
+         case 1:
+            RotateMotorPID(TOOL,100,180,50,30,70);
+         break;
+
+         case 2:
+            RotateMotorPID(TOOL,100,-360,50,30,70);
+         break;
+      }
+   }
+}
+
+/*
+sub Mode2Actions(byte Lc, byte Rc, byte fun, bool continuous)
+{
+  // ...
+}
+*/
+
+//  this subroutine displays informations
+// about the command received
+sub ShowCommands(byte Lc, byte Rc, byte trig, byte command, byte mode)
+{
+   string arrows[];
+   string Rstring, Lstring;
+   // fill the arrows array with the listed strings
+   ArrayBuild(arrows,"o",">",">>",">>>",">>>>","<","<<","<<<","<<<<");
+   ClearScreen();
+   // add text on NXT screen to guide the user
+   // in the various modes
+   TextOut(0,LCD_LINE8,"mode:        ");
+   NumOut(30,LCD_LINE8,mode);
+   // prepare the Xstring to be shown,
+   // according to the right and left command values.
+   // The Xstring is an element of the arrows array.
+   Rstring = arrows[Rc];
+   Lstring = arrows[Lc];
+   // show the string on the screen.
+   TextOut(R_INFO_PX,LCD_LINE2,Rstring);
+   TextOut(L_INFO_PX-5*StrLen(Lstring),LCD_LINE2,Lstring);
+   if (trig&1) TextOut(R_INFO_PX-5,LCD_LINE3,"*");
+   if (trig&2) TextOut(L_INFO_PX-5,LCD_LINE3,"*");
+   TextOut(0,LCD_LINE6,"                ");
+   NumOut(0,LCD_LINE6,command);
+}
+
+task main ()
+{
+   short command;
+   byte Rcmd, Lcmd, function, mode;
+   if (!CheckBTConnection(0))
+   {
+      // if BT connection with remote control
+      // is not established, stop the whole program
+      Stop(true);
+   }
+   // loop forever
+   while(true)
+   {
+      // if the mailbox 1 is not empty, process command
+      if (ReceiveRemoteNumber(1,true,command) != STAT_MSG_EMPTY_MAILBOX)
+      {
+         // decode remote control working mode
+         mode = (command/1000);
+         // decode the left command (100's)
+         Rcmd = (command/10)%10;
+         // decode the right command (10's)
+         Lcmd = (command/100)%10;
+         // decode the function (1's)
+         function = (command%10);
+         // show various informations on screen
+         ShowCommands(Lcmd,Rcmd,function,command,mode);
+         // actuate commands
+
+         switch(mode)
+         {
+            case 0:   Mode0Actions(Lcmd,Rcmd,function,true);  break;
+            case 1:   Mode1Actions(Lcmd,Rcmd,function,false);  break;
+         // case 2:   Mode2Actions(Lcmd,Rcmd,function,false);  break;
+         //   ...
+         // case 9:   Mode9Actions(Lcmd,Rcmd,function,false);  break;
+         }
+      }
+      Wait(50);
+   }
+}
+
+

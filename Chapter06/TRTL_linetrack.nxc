@@ -1,0 +1,98 @@
+#define R_LEGS OUT_A
+#define L_LEGS OUT_C
+#define LEGS OUT_AC
+#define LIGHT IN_3
+#define TOLERANCE 3
+
+// this macro clear a line of the display
+#define ClearLine(line)  TextOut(0,line,"                   ")
+
+int low=30, high=50;
+
+void Tracking_init ()
+{
+   bool done = false;
+   SetSensorLight(LIGHT);
+   ClearScreen();
+   
+   // display menu
+   TextOut(0,LCD_LINE6," Set        Set");
+   TextOut(0,LCD_LINE7,"dark   OK  light");
+   
+   until(done)
+   {
+      TextOut(0,LCD_LINE2,"Reading:         ");
+      NumOut(50,LCD_LINE2,Sensor(LIGHT));
+      
+      // if you press the NXT left arrow button...
+      if (ButtonPressed(BTNLEFT,true))
+      {
+         // ...you are setting the low threshold
+         low = Sensor(LIGHT) + TOLERANCE;
+         ClearLine(LCD_LINE8);
+         NumOut(8,LCD_LINE8,low);
+         NumOut(75,LCD_LINE8,high);
+         while (ButtonPressed(BTNLEFT,true));
+      }
+      
+      // if you press the NXT right arrow button...
+      if (ButtonPressed(BTNRIGHT,true))
+      {
+         // ...you are setting the high threshold
+         high= Sensor(LIGHT) - TOLERANCE;
+         ClearLine(LCD_LINE8);
+         NumOut(8,LCD_LINE8,low);
+         NumOut(75,LCD_LINE8,high);
+         while (ButtonPressed(BTNRIGHT,true));
+      }
+      // if you press the NXT orange button, you accept the changes
+      if (ButtonPressed(BTNCENTER,true)) done = true;
+      Wait(10);
+   }
+   Wait(1000);
+   ClearScreen();
+}
+
+task main ()
+{
+   int reading;
+   
+   // call the initialization function to set the thresholds
+   Tracking_init();
+   
+   while (true)
+   {
+      // read the light sensor
+      reading  = Sensor(LIGHT);
+      
+      // if the sensor sees white (pad)
+      if ( reading >= high )
+      {
+         TextOut(5,LCD_LINE3,"WHITE");
+         Float(LEGS);
+         // the turtle turns right
+         OnRev(L_LEGS,100);
+      }
+      
+      // if the sensor sees gray (line edge)
+      if ( reading < high && reading > low )
+      {
+         TextOut(5,LCD_LINE3,"GRAY  ");
+         // the turtle goes straight
+         OnRevSync(LEGS,100,0);
+      }
+      // if the sensor sees black (line)
+      if ( reading <= low )
+      {
+         TextOut(5,LCD_LINE3,"BLACK");
+         Float(LEGS);
+         // the turtle turns left
+         OnRev(R_LEGS,100);
+      }
+      // display the actual sensor reading
+      TextOut(0,LCD_LINE2,"Reading:         ");
+      NumOut(50,LCD_LINE2,reading);
+      Wait(100);
+   }
+}
+

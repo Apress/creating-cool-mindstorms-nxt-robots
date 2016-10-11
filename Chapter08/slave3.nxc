@@ -1,0 +1,309 @@
+#include "J5Defs.nxc"
+#include "HSlib.nxc"
+
+//mechanical state variables
+short torso_state, arms_state;
+
+////////////////////////////////////////////////////////////////////////////////
+//                                  LASER                                     //
+////////////////////////////////////////////////////////////////////////////////
+
+sub Laser (short new_state)
+{
+   int t;
+   // turn laser tip on and off, move laser up and down
+   switch (new_state)
+   {
+      case L_ON:
+         SetSensorLight(LASER_TIP);
+         break;
+         
+      case L_OFF:
+         SetSensorTouch(LASER_TIP);
+         break;
+         
+      case L_UP: case L_DOWN:
+         // use stall detection to move the laser
+         t = MotorRotationCount(LASER);
+         short dir = 1;
+         if (new_state == L_UP) dir = -1;
+         OnFwd(LASER,dir*55);
+         Wait(80);
+         while( abs(t-MotorRotationCount(LASER))>10 )
+         {
+            t = MotorRotationCount(LASER);
+            Wait(80);
+         }
+         Off(LASER);
+         break;
+         
+      case L_BLINK:
+         // turn the light on and off quickly
+         repeat(10)
+         {
+            SetSensorLight(LASER_TIP);
+            Wait(50);
+            SetSensorTouch(LASER_TIP);
+            Wait(50);
+         }
+         break;
+   }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                  ARMS                                      //
+////////////////////////////////////////////////////////////////////////////////
+
+#define a1       80
+#define a2       80
+#define a3      120
+#define a4       60
+
+#define A02  (a1+a2)
+#define A03  (a1+a2+a3)
+#define A04  (a1+a2+a3+a4)
+#define A13  (a2+a3)
+#define A14  (a2+a3+a4)
+#define A24  (a3+a4)
+
+// arms movement decision table
+int arms_angles[] = {    0,  -a1, -A02, -A03, -A04,
+                        a1,    0,  -a2, -A13, -A14,
+                       A02,   a2,    0,  -a3, -A24,
+                       A03,  A13,   a3,    0,  -a4,
+                       A04,  A14,  A24,   a4,    0 };
+
+sub Arms( short new_state )
+{
+   if (new_state == arms_state) return;
+   int t;
+   switch (new_state)
+   {
+      case A_FOLDED:
+         // use stall detection to fold the arms completely
+         t = MotorRotationCount(ARMS);
+         OnFwd(ARMS,50);
+         Wait(80);
+         while( abs(t-MotorRotationCount(ARMS))>10 )
+         {
+            t = MotorRotationCount(ARMS);
+            Wait(50);
+         }
+         Off(ARMS);
+         RotateMotorExPID(ARMS,50,-10,0, false,true,90,40,40);
+         Off(ARMS);
+         break;
+      // use the decision table above
+      case A_UP:
+      case A_CLOSED:
+      case A_OPEN:
+      case A_ROTATE:
+         RotateMotorPID(ARMS,50,
+            arms_angles[(new_state%10)+5*(arms_state%10)],90,40,40);
+         Wait(20);
+         break;
+   }
+   arms_state = new_state;
+}
+
+sub ArmsStepOpen()
+{
+   short new = arms_state;
+   new++;
+   if (new>A_ROTATE) new = A_ROTATE;
+   Arms(new);
+}
+
+sub ArmsStepClose()
+{
+   short new = arms_state;
+   new--;
+   if (new<A_FOLDED) new = A_FOLDED;
+   Arms(new);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                 TORSO                                      //
+////////////////////////////////////////////////////////////////////////////////
+
+#define t1      360
+#define t2      240
+#define t3      400
+#define T02      (t1+t2)
+#define T03      (t1+t2+t3)
+#define T13      (t2+t3)
+
+// arm compensation angle decision table
+int arms_comp_angles[] = {   0,  20,   50,   70,
+                           -20,   0,   30,   50,
+                           -50, -30,    0,   20,
+                           -70, -50,  -20,    0 };
+
+// torso movement decision table
+int torso_angles[] = {    0,  -t1, -T02, -T03,
+                         t1,    0,  -t2, -T13,
+                        T02,   t2,    0,  -t3,
+                        T03,  T13,   t3,    0 };
+                        
+sub Torso( short new_state )
+{
+   if (new_state == torso_state) return;
+   int t;
+   int power = 95;
+   switch (new_state)
+   {
+      case T_DOWN:
+         // use stall detection
+         t = MotorRotationCount(TORSO);
+         OnFwd(TORSO,40);
+         Wait(200);
+         while( abs(t-MotorRotationCount(TORSO))>25 )
+         {
+            t = MotorRotationCount(TORSO);
+            Wait(100);
+         }
+         Off(TORSO);
+         RotateMotorPID(TORSO,50,-240,100,50,30);
+         break;
+
+      // use the decision table above
+      case T_MID:
+      case T_UP:
+      case T_UPMOST:
+         if (new_state<torso_state) power = 50; //we are going down slowly
+         RotateMotorPID(TORSO,power,
+            torso_angles[(new_state%10)+4*(torso_state%10)],100,50,30);
+         Wait(20);
+         break;
+   }
+   //compensate arms position
+   RotateMotorPID(ARMS,50,
+      arms_comp_angles[(new_state%10)+4*(torso_state%10)],100,50,30);
+   Off(ARMS);
+   torso_state = new_state;
+}
+
+sub TorsoStepUp()
+{
+   short new = torso_state;
+   new++;
+   if (new>T_UPMOST) new = T_UPMOST;
+   Torso(new);
+}
+
+sub TorsoStepDown()
+{
+   short new = torso_state;
+   new--;
+   if (new<T_DOWN) new = T_DOWN;
+   Torso(new);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                 INIT                                     //
+////////////////////////////////////////////////////////////////////////////////
+
+void J5_Init()
+{
+   SetHSPort();
+   torso_state = UNKNOWN;
+   arms_state = UNKNOWN;
+   Torso(T_DOWN);
+   Arms(A_FOLDED);
+   Laser(L_UP);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                  MAIN                                      //
+////////////////////////////////////////////////////////////////////////////////
+
+// show a message to describe the command being executed
+bool ShowRxCommand ( short s )
+{
+   short line;
+   string txt;
+   bool error = false;
+   switch(s)
+   {
+      case T_DOWN:  txt = "torso down";  break;
+      case T_MID:  txt = "torso mid";  break;
+      case T_UP:  txt = "torso up";  break;
+      case T_UPMOST:  txt = "torso upmost";  break;
+      case T_STEPDOWN: txt = "torso step down"; break;
+      case T_STEPUP: txt = "torso step up"; break;
+
+      case L_UP:  txt = "laser up";  break;
+      case L_DOWN:  txt = "laser down";  break;
+      case L_ON:  txt = "laser on";  break;
+      case L_OFF:  txt = "laser off";  break;
+      case L_BLINK:  txt = "laser blink";  break;
+
+      case A_FOLDED:  txt = "arms folded";  break;
+      case A_UP:  txt = "arms up";  break;
+      case A_CLOSED:  txt = "hands closed";  break;
+      case A_OPEN:  txt = "hands open";  break;
+      case A_ROTATE:  txt = "wrist rotate";  break;
+
+      default: txt = "unknown command"; error = true; break;
+   }
+   TextOut(0,LCD_LINE2,"                     ");
+   TextOut(0,LCD_LINE2,txt);
+   return error;  //returns true if the command is unknown
+}
+
+// parse received command and execute it
+void ExecuteCommand ( short command )
+{
+   if (abs(command)/10 == TORSO_ACTIONS)
+   {
+      if (command == T_STEPUP) TorsoStepUp();
+      else if (command == T_STEPDOWN) TorsoStepDown();
+      else Torso(command);
+   }
+   if (abs(command)/10 == ARMS_ACTIONS)
+   {
+      if (command == A_STEP_OPEN) ArmsStepOpen();
+      else if (command == A_STEP_CLOSE) ArmsStepClose();
+      else Arms(command);
+   }
+   if (abs(command)/10 == LASER_ACTIONS) Laser(command);
+}
+
+task main()
+{
+   KeepAliveType kaArgs;   // this structure is used to call SysKeepAlive
+   int cmd;
+   
+   J5_Init();
+   Torso(T_MID);
+   // receive commands from master.
+   // send an ack meaning "command received"
+   // execute the command
+   // send another ack meaning "command executed"
+   SendHSNumber(ACK_RX);
+   SendHSNumber(ACK_DONE);
+   while(true)
+   {
+      if (ReceiveHSNumber(cmd))
+      {
+         TextOut(0,LCD_LINE3,"send rx ack  ");
+         SendHSNumber(ACK_RX);
+         ShowRxCommand(cmd);
+         ExecuteCommand(cmd);
+         TextOut(0,LCD_LINE3,"send exe ack  ");
+         Wait(100);
+         SendHSNumber(ACK_DONE);
+         SendHSNumber(ACK_DONE);
+      }
+      else
+      {
+         TextOut(0,LCD_LINE3,"idle          ");
+         SendHSNumber(ACK_ERR);
+      }
+      // keep the NXT alive: this system call
+      // resets the sleep timer, to avoid that the NXT
+      // would turn off automatically when the program is running.
+      SysKeepAlive(kaArgs);
+   }
+}
+

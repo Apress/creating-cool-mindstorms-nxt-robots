@@ -1,0 +1,23 @@
+task task1()
+{
+   while(true)
+   {
+      PlayTone(1000,300);
+      Wait(600);
+   }
+}
+
+task task2()
+{
+   while(true)
+   {
+      PlayTone(500,300);
+      Wait(600);
+   }
+}
+
+
+task main()
+{
+   Precedes(task1,task2);
+}

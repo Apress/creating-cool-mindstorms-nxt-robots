@@ -1,0 +1,166 @@
+#ifndef _J5_SHOWOFF_NXC
+#define _J5_SHOWOFF_NXC
+
+#include "J5Defs.nxc"
+#include "J5_comm.nxc"
+#include "J5_head.nxc"
+#include "J5_sounds.nxc"
+
+
+unsigned long _show_timer;
+
+void ResetShowTimer ()
+{
+   _show_timer = CurrentTick();
+}
+
+unsigned long GetTime ()
+{
+   return CurrentTick()-_show_timer;
+}
+
+void J5_Show_Init()
+{
+   TextOut(0,LCD_LINE1,"Initializing...");
+   SetHSPort();
+   SetSensorLowspeed(EYES);
+   SetSensorSound(MIC);
+   Remote(L_UP,ACK_DONE);
+   Remote(T_MID,ACK_DONE);
+   Remote(A_FOLDED,ACK_DONE);
+   head_state = UNKNOWN;
+   Head(CENTER,1);
+}
+
+
+sub J5_Show()
+{
+   unsigned long time;
+   ClearScreen();
+   TextOut(5,LCD_LINE1,"JohnNXT SHOW!");
+   Sound(S_LOOP,false);
+   ClearLine(5);
+   TextOut(0,LCD_LINE5,"warm up");
+   Wait(LOOP_T);
+
+   //sound loop 1
+   // I use a timer to keep actions sychronized with the loop
+   ClearLine(5);
+   TextOut(0,LCD_LINE5,"head");
+   if (ButtonPressed(BTNCENTER,true)) return;
+   
+   ResetShowTimer();
+   Head(RIGHT,2);
+   time = GetTime();
+   if (ButtonPressed(BTNCENTER,true)) return;
+   Wait(LOOP_T/4-time);
+
+   
+   ResetShowTimer();
+   Head(CENTER,2);
+   time = GetTime();
+   if (ButtonPressed(BTNCENTER,true)) return;
+   Wait(LOOP_T/4-time);
+   
+   ResetShowTimer();
+   Head(LEFT,2);
+   time = GetTime();
+   if (ButtonPressed(BTNCENTER,true)) return;
+   Wait(LOOP_T/4-time);
+
+   ResetShowTimer();
+   Head(CENTER,2);
+   time = GetTime();
+   if (ButtonPressed(BTNCENTER,true)) return;
+   Wait(LOOP_T/4-time);
+
+   
+   //sound loop 2
+   ClearLine(5);
+   TextOut(0,LCD_LINE5,"arms");
+   
+   ResetShowTimer();
+   Remote(A_CLOSED,ACK_DONE);
+   time = GetTime();
+   if (ButtonPressed(BTNCENTER,true)) return;
+   Wait(LOOP_T/2-time);
+
+   ResetShowTimer();
+   Remote(A_ROTATE,ACK_DONE);
+   time = GetTime();
+   if (ButtonPressed(BTNCENTER,true)) return;
+   Wait(LOOP_T/2-time);
+
+   ResetShowTimer();
+   Remote(A_UP,ACK_DONE);
+   time = GetTime();
+   if (ButtonPressed(BTNCENTER,true)) return;
+   Wait(LOOP_T/2-time);
+   
+   ResetShowTimer();
+   Remote(A_FOLDED,ACK_DONE);
+   time = GetTime();
+   if (ButtonPressed(BTNCENTER,true)) return;
+   Wait(LOOP_T/2-time);
+
+   //sound loop 5
+   
+   ClearLine(5);
+   TextOut(0,LCD_LINE5,"full heigth");
+   
+   ResetShowTimer();
+   Remote(T_UPMOST,ACK_DONE);
+   //Remote(L_DOWN,ACK_DONE);
+   time = GetTime();
+   if (ButtonPressed(BTNCENTER,true)) return;
+   Wait(LOOP_T-time);
+   
+   //sound loop 6
+   ClearLine(5);
+   TextOut(0,LCD_LINE5,"laser");
+   
+   ResetShowTimer();
+   Remote(T_DOWN,ACK_DONE);
+   Remote(L_DOWN,ACK_DONE);
+   Remote(L_BLINK,ACK_DONE);
+   Remote(L_UP,ACK_DONE);
+   Remote(T_MID,ACK_DONE);
+   time = GetTime();
+   if (ButtonPressed(BTNCENTER,true)) return;
+   Wait(3*LOOP_T-time);
+
+   //sound loop 7
+   
+   OnRev(TREADS,100);
+   Wait(LOOP_T/8);
+   OnFwd(TREADS,100);
+   Wait(LOOP_T/8);
+   OnRev(TREADS,100);
+   Wait(LOOP_T/8);
+   OnFwd(TREADS,100);
+   Wait(LOOP_T/8);
+   OnRevSync(TREADS,80,100);
+   Remote(T_UPMOST,ACK_DONE);
+   Remote(T_MID,ACK_DONE);
+   if (ButtonPressed(BTNCENTER,true)) return;
+   Wait(LOOP_T+LOOP_T/2);
+   OnRev(TREADS,100);
+   Wait(LOOP_T/2);
+   Float(TREADS);
+   Sound(S_NONE,false);
+   Remote(A_OPEN,ACK_RX);
+   Sound(S_COOL,true);
+   Remote(A_FOLDED,ACK_DONE);
+   Wait(1000);
+}
+
+#ifndef MASTER
+task main()
+{
+   J5_Show_Init();
+   J5_Show();
+}
+#endif
+
+#endif
+

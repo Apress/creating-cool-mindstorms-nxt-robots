@@ -1,0 +1,547 @@
+// JohnNXT master program
+#define MASTER
+
+#include "J5Defs.nxc"
+#include "J5_comm.nxc"
+#include "J5_head.nxc"
+#include "J5_sounds.nxc"
+#include "J5_lineflw.nxc"
+#include "J5_handflw.nxc"
+#include "J5_show.nxc"
+#include "J5_remote.nxc"
+
+// global state variable for JohnNXT behavior FSM
+short J5_state;
+
+void J5_Init()
+{
+   TextOut(0,LCD_LINE1,"Initializing...");
+   SetHSPort();
+   SetSensorLowspeed(EYES);
+   SetSensorSound(MIC);
+   Remote(L_UP,ACK_DONE);
+   Remote(T_MID,ACK_DONE);
+   Remote(A_FOLDED,ACK_DONE);
+   head_state = UNKNOWN;
+   J5_state = IDLE;
+   Head(CENTER,1);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                MANIPULATION
+////////////////////////////////////////////////////////////////////////////////
+
+#define E_EXIT 1
+#define E_TRIGGER 2
+#define E_ELAPSE 3
+#define E_TIMEOUT 1300
+#define FSM_IDLE 0
+#define FSM_COUNTING 1
+
+int MeasureNoise ()
+{
+  int n;
+  //estimate ambient noise by averaging 10 readings
+  n = 0;
+  repeat(10)
+  {
+     n += Sensor(MIC);
+     Wait(20);
+  }
+  n /= 10;
+  return n;
+}
+
+// this function waits for an event among three:
+//  - someone that clicks the orange button
+//  - the timer to elapse
+//  - a loud sound pulse occurs
+// and returns a number to describe which event
+// occurred first
+short WaitEvent(short noise, unsigned long timer)
+{
+   short event = 0;
+   while ( event==0 )
+   {
+      if (ButtonPressed(BTNCENTER,true)==1)
+      {
+         event = E_EXIT;
+         while(ButtonPressed(BTNCENTER,true)==1);
+         TextOut(5,LCD_LINE6,"Button");
+      }
+      else if (CurrentTick() > timer + E_TIMEOUT)
+      {
+         event = E_ELAPSE;
+         TextOut(5,LCD_LINE6,"Elapse");
+      }
+      else if (Sensor(MIC)>noise+50)
+      {
+         event = E_TRIGGER;
+         TextOut(5,LCD_LINE6,"*");
+         until(Sensor(MIC)<noise+40);
+         Wait(10);
+      }
+   }
+   ClearLine(6);
+   return event;
+}
+// this subroutine shows the actual state of the arms FSM
+sub ShowArmsState(short state, short line)
+{
+   ClearLine(line);
+   switch(state)
+   {
+      case A_FOLDED: TextOut(5,(8-line)*8,"Folded"); break;
+      case A_UP: TextOut(5,(8-line)*8,"Up"); break;
+      case A_CLOSED: TextOut(5,(8-line)*8,"Hands closed"); break;
+      case A_OPEN: TextOut(5,(8-line)*8,"Hands open"); break;
+      case A_ROTATE: TextOut(5,(8-line)*8,"Wrist rotate"); break;
+   }
+}
+
+// this subroutine manages the arms FSM, to command the arms with
+// sound pulses
+sub J5_Manipulation()
+{
+   unsigned long soundFSMtimer;
+   short count = A_FOLDED;
+   short state = FSM_IDLE;
+   short event;
+   bool exit = false;
+   short noise;
+   ClearScreen();
+   TextOut(0,LCD_LINE1,"Arms control");
+   // measure background noise
+   noise = MeasureNoise();
+   PlayTone(2000,10);
+   Wait(100);
+   PlayTone(2000,10);
+   Wait(100);
+   Remote(A_FOLDED,ACK_DONE);
+   // the sound counting FSM is implemented below
+   until(exit)
+   {
+      if (state == FSM_IDLE)
+      {
+         // wait for an event
+         event = WaitEvent(noise,soundFSMtimer);
+         // perform the actions for this state
+         if (event == E_TRIGGER)
+         {
+            state = FSM_COUNTING;
+            count = A_FOLDED;
+         }
+         else if (event == E_ELAPSE)
+         {
+            // reset the timer
+            soundFSMtimer = CurrentTick();
+         }
+         else if (event == E_EXIT) exit = true;
+      }
+      else if (state == FSM_COUNTING)
+      {
+         // displays information on screen line 3
+         ShowArmsState(count,3);
+         // wait for an event
+         event = WaitEvent(noise,soundFSMtimer);
+         // perform the actions for this state
+         if (event == E_TRIGGER)
+         {
+            count++;
+            if (count>A_ROTATE) count = A_ROTATE;
+            // reset the timer
+            soundFSMtimer = CurrentTick();
+         }
+         else if (event == E_ELAPSE)
+         {
+            // reset the timer
+            soundFSMtimer = CurrentTick();
+            Remote(count,ACK_DONE);
+            state = FSM_IDLE;
+         }
+         else if (event == E_EXIT) exit = true;
+      }
+   }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                BEHAVIOR STATES
+////////////////////////////////////////////////////////////////////////////////
+
+// in this mode, JohnNXT is irritated by the loud noise:
+// he lowers the torso and arms the laser;
+// he disarms the laser only when the loud noise around stops.
+sub J5_Armed()
+{
+   short sound = 100;
+   const short measures = 10;
+   ClearScreen();
+   GraphicOut(26,10,"!.ric");
+   TextOut(25,LCD_LINE8,"Be quiet!");
+   // tell the slave to lower the torso, and arm the laser
+   Remote(T_DOWN,ACK_DONE);
+   Remote(L_DOWN,ACK_DONE);
+   Remote(L_ON,ACK_DONE);
+   Wait(500);
+   // reset the timer
+   unsigned long armed_timer = CurrentTick();
+   // wait inside this loop until 2 seconds are passed or the
+   // noise level is low.
+   until ( (CurrentTick()-armed_timer>SEC_2) && sound <LO_NOISE)
+   {
+      sound = 0;
+      for (int i = 0; i<measures; i++)
+      {
+         sound += Sensor(MIC);
+      }
+      sound /= measures;
+      
+      if (sound>HI_NOISE)
+      {
+         // reset the timer
+         armed_timer = CurrentTick();
+      }
+      TextOut(0,LCD_LINE3,"noise:                  ");
+      NumOut(50,LCD_LINE3,sound);
+      Wait(20);
+   }
+   // tell the slave to disarm the laser
+   // and raise the torso
+   Remote(L_OFF,ACK_DONE);
+   Remote(L_UP,ACK_DONE);
+   Remote(T_MID,ACK_DONE);
+   ResetScreen();
+}
+
+// JohnNXT greets the people and waits for "input"
+// (the orange button to be clicked
+sub J5_Greeting()
+{
+   bool exit = false;
+   unsigned long greet_timer;
+   byte timeout_count = 0;
+   ClearScreen();
+   TextOut(33,LCD_LINE5,"Hello!");
+   Sound(S_HELLO,true);
+   until(exit)
+   {
+      greet_timer = CurrentTick();
+      Sound(S_INPUT,false);
+      // wait for 3 seconds or until the orange button is pressed
+      until (ButtonPressed(BTNCENTER,true) || CurrentTick()-greet_timer>SEC_3);
+      if (ButtonPressed(BTNCENTER,true))
+      {
+         // if the orange button is pressed, exit to menu
+         J5_state = MENU;
+         exit = true;
+      }
+      else if (timeout_count>5)
+      {
+         // if the time is out, come back to IDLE state
+         J5_state = IDLE;
+         exit = true;
+      }
+      timeout_count++;
+   }
+   // wait until the orange button is released
+   while(ButtonPressed(BTNCENTER,true));
+}
+
+sub TreadsRandomMovement()
+{
+   OnRevSync(TREADS,60,0);
+   Wait(1000);
+   OnRevSync(TREADS,60,60);
+   Wait(1000);
+   OnRevSync(TREADS,60,-60);
+   Wait(1000);
+   OnFwdSync(TREADS,90,0);
+   Wait(800);
+   Float(TREADS);
+}
+
+// JohnNXT performs random movements from his repertory
+sub J5_Random()
+{
+   ClearScreen();
+   TextOut(30,LCD_LINE1,"RANDOM");
+   short action;
+   action = Random(5);
+   switch(action)
+   {
+      case 0:
+         TextOut(0,LCD_LINE3,"IDLE - Turn head           ");
+         RotateMotorPID(HEAD,80,200,30,20,70);
+         RotateMotorPID(HEAD,80,-400,30,20,70);
+         RotateMotorPID(HEAD,80,200,30,20,70);
+         break;
+      case 1:
+         TextOut(0,LCD_LINE3,"IDLE - Steer          ");
+         TreadsRandomMovement();
+         break;
+      case 2:
+         TextOut(0,LCD_LINE3,"IDLE - Arms             ");
+         Remote(A_OPEN,ACK_DONE);
+         Remote(A_CLOSED,ACK_DONE);
+         Remote(A_FOLDED,ACK_DONE);
+         break;
+      case 3:
+         TextOut(0,LCD_LINE3,"IDLE - Laser          ");
+         Remote(T_DOWN,ACK_DONE);
+         Remote(L_DOWN,ACK_DONE);
+         Remote(L_BLINK,ACK_DONE);
+         Remote(L_UP,ACK_DONE);
+         Remote(T_MID,ACK_DONE);
+         break;
+      case 4:
+         TextOut(0,LCD_LINE3,"IDLE - Torso           ");
+         Remote(T_STEPUP,ACK_DONE);
+         Wait(1000);
+         Remote(T_STEPDOWN,ACK_DONE);
+         break;
+      case 5:
+         TextOut(0,LCD_LINE3,"IDLE - NO OP          ");
+         Sound(S_RANDOM,true);
+         Wait(1000);
+         break;
+   }
+}
+
+// IDLE state
+// if something approaches in silence, he greets
+// if there is noise and near objects, he arms the laser
+sub J5_Idle()
+{
+   int dist = 0;
+   int noise = 0;
+   const int measures = 10;
+   int random_time = 500*(2+Random(4));
+   long idle_timer = CurrentTick();
+   short event = 0;
+   
+   while ( event == 0 )
+   {
+      for (int i = 0; i<measures; i++)
+      {
+         dist += SensorUS(EYES);
+         noise += Sensor(MIC);
+      }
+      dist /= measures;
+      noise /= measures;
+   
+      ClearScreen();
+      TextOut(5,LCD_LINE7,"distance:      ");
+      NumOut(60,LCD_LINE7,dist);
+      TextOut(5,LCD_LINE8,"noise:      ");
+      NumOut(60,LCD_LINE8,noise);
+
+      if (dist < NEAR) event = 1;
+      if (CurrentTick()-idle_timer>random_time) event = -1;
+      Wait(10);
+   }
+   
+   if (event == 1)
+   {
+      if (noise > HI_NOISE)
+      {
+         J5_state = ARMED;
+      }
+      else
+      {
+         J5_state = GREETING;
+      }
+   }
+   else
+   {
+      J5_Random();
+      J5_state = IDLE;
+   }
+   ClearScreen();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                  MENU
+////////////////////////////////////////////////////////////////////////////////
+
+#define M_REMOTE  0
+#define M_LINE    1
+#define M_HAND    2
+#define M_ARMS    3
+#define M_SHOW    4
+#define M_BACK    5
+
+short DisplayMenuItems(short item)
+{
+   string s;
+   short c;
+
+   switch(item)
+   {
+      case M_REMOTE:
+         s = "<     R/C      >";
+         c = REMOTE_CONTROL;
+         break;
+      case M_LINE:
+         s = "<  Line follow > ";
+         c = LINEFOLLOW;
+         break;
+      case M_HAND:
+         s = "<  Hand follow > ";
+         c = HANDFOLLOW;
+         break;
+      case M_ARMS:
+         s = "< Arms control > ";
+         c = MANIPULATION;
+         break;
+      case M_SHOW:
+         s = "<     Show!    >";
+         c = SHOWOFF;
+         break;
+      case M_BACK:
+         s = "<     Back     >";
+         c = IDLE;
+         break;
+   }
+
+   TextOut(0,LCD_LINE8,"                 ");
+   TextOut(0,LCD_LINE8,s);
+   return c;
+}
+
+// this function makes the menu work,
+// calling the DisplayMenuItems to get the current item selected.
+// it updates the screen, changing the item variable value
+// when you press the arrow buttons
+short MenuEngine()
+{
+   bool done = false;
+   short item, choice;
+   unsigned long menu_timer;
+   ClearScreen();
+   TextOut(0,LCD_LINE1,"* JohnNXT MENU *");
+   item = M_REMOTE;
+   // reset timer
+   menu_timer = CurrentTick();
+   
+   until (done)
+   {
+      choice = DisplayMenuItems(item);
+      if(ButtonPressed(BTNLEFT,true))
+      {
+         PlayFile("! Click.rso");
+         while (ButtonPressed(BTNLEFT,true));
+         item--;
+         // reset timer
+         menu_timer = CurrentTick();
+      }
+      if(ButtonPressed(BTNRIGHT,true))
+      {
+         PlayFile("! Click.rso");
+         while (ButtonPressed(BTNRIGHT,true));
+         item++;
+         // reset timer
+         menu_timer = CurrentTick();
+      }
+      if(ButtonPressed(BTNCENTER,true))
+      {
+         PlayFile("! Click.rso");
+         while (ButtonPressed(BTNCENTER,true));
+         done = true;
+      }
+      // if no button is pressed within 20 sec, exit to IDLE state
+      if ( CurrentTick()-menu_timer>SEC_20 )
+      {
+         done = true;
+         choice = IDLE;
+      }
+      // the menu items are six and form a loop
+      // item can be 0 1 2 3 4 5 0 1 2 3 4 5...
+      if (item<0) item = 5;
+      else if (item>5) item = 0;
+      Wait(50);
+   }
+   return choice;
+}
+
+sub J5_Menu()
+{
+   short new_state;
+   ClearScreen();
+   new_state = MenuEngine();
+   J5_state = new_state;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                  MAIN
+////////////////////////////////////////////////////////////////////////////////
+
+task main()
+{
+   KeepAliveType kaArgs;
+   J5_Init();
+   J5_state = IDLE;
+   // J5 behavior FSM
+   while (true)
+   {
+      switch(J5_state)
+      {
+         case ARMED:
+            J5_Armed();
+            J5_state = IDLE;
+            break;
+         case GREETING:
+            J5_Greeting();
+            break;
+         case HANDFOLLOW:
+            J5_HandFollow();
+            J5_state = MENU;
+            break;
+         case IDLE:
+            J5_Idle();
+            break;
+         case LINEFOLLOW:
+            J5_LineFollow();
+            J5_state = MENU;
+            break;
+         case MANIPULATION:
+            J5_Manipulation();
+            J5_state = MENU;
+            break;
+         case MENU:
+            J5_Menu();
+            // next state is determined by user choice
+            break;
+         case SHOWOFF:
+            J5_Show();
+            Remote(T_MID,ACK_DONE);
+            Remote(A_FOLDED,ACK_DONE);
+            Remote(L_UP,ACK_DONE);
+            J5_state = MENU;
+            break;
+         case REMOTE_CONTROL:
+            if (BluetoothStatus(0)==NO_ERR)
+            {
+            // if the Bluetooth master NXT (remote control)
+            // is connected, call J5_Remote_Control()
+               J5_Remote_Control();
+               Remote(T_MID,ACK_DONE);
+               Remote(A_FOLDED,ACK_DONE);
+               Remote(L_UP,ACK_DONE);
+            }
+            else
+            {
+            // show error message
+               ClearLine(3);
+               TextOut(0,LCD_LINE3,"Remote offline!");
+               Wait(1000);
+            }
+            J5_state = MENU;
+            break;
+      }
+      // keep the NXT alive: this system call
+      // resets the sleep timer, to avoid that the NXT
+      // would turn off automatically when the program is running.
+      SysKeepAlive(kaArgs);
+   }
+}
+

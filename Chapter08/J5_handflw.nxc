@@ -1,0 +1,126 @@
+#ifndef _J5_HANDFOLLOW_NXC
+#define _J5_HANDFOLLOW_NXC
+
+#define HANDFOLLOW
+#include "J5Defs.nxc"
+#include "J5_head.nxc"
+
+#define OBJ_FAR 0
+#define OBJ_CLOSE -1
+#define OBJ_TOO_CLOSE 1
+#define __FAR       30
+#define __NEAR      20
+#define __TOO_NEAR  10
+
+short Sight()
+{
+   short dist;
+   string txt;
+   short object;
+      dist = SensorUS(EYES);
+      if (dist>30)
+      {
+         object = OBJ_FAR;
+         txt = "FAR";
+      }
+      else
+      {
+          if (dist<10)
+          {
+             object = OBJ_TOO_CLOSE;
+             txt = "TOO CLOSE";
+          }
+          else
+          {
+             object = OBJ_CLOSE;
+             txt = "NEAR";
+          }
+      }
+      ClearLine(2);
+      NumOut(5,LCD_LINE2,dist);
+      TextOut(30,LCD_LINE2,txt);
+   return object;
+}
+
+sub MoveTreads( short dir )
+{
+   short object = Sight();
+   if (object!=OBJ_FAR)
+   {
+      ClearLine(3);
+            OnFwdSync(TREADS,sign(object)*60,0);
+            Wait(500);
+            switch(dir)
+            {
+               case LEFT:
+                  TextOut(5,LCD_LINE3,"LEFT");
+                  OnFwdSync(TREADS,sign(object)*70,-30);
+                  break;
+               case CENTER:
+                  TextOut(5,LCD_LINE3,"STRAIGHT");
+                  OnFwdSync(TREADS,sign(object)*80,0);
+                  break;
+               case RIGHT:
+                  TextOut(5,LCD_LINE3,"RIGHT");
+                  OnFwdSync(TREADS,sign(object)*70,30);
+                  break;
+            }
+      until (Sight() == OBJ_FAR);
+      Off(TREADS);
+   }
+   else ClearLine(3);
+}
+
+const short directionSR[] = { RIGHT, CENTER, LEFT, CENTER };
+
+// This subroutine makes JN5 follow your hand
+sub J5_HandFollow()
+{
+   bool exit = false;
+   int i = 0, dir;
+   ClearScreen();
+   TextOut(8,LCD_LINE1,"Hand Following");
+   head_state = UNKNOWN;
+   // center the head
+   Head(CENTER,1);
+   // repeat the hand following algorithm until the
+   // orange NXT button is pressed
+   until (exit)
+   {
+      // choose next direction
+      dir = directionSR[i];
+      // turn head
+      Head(dir,2);
+      // move accordingly to detection
+      MoveTreads(dir);
+      // increase direction "pointer"
+      i++;
+      if (i>3) i = 0;    // reset the pointer position
+      // the directions sequence obtained by indexing the directionSR array is
+      //RIGHT, CENTER, LEFT, CENTER, RIGHT, CENTER, LEFT, CENTER ...
+      
+      // if you press the orange button, the algorithm ends
+      if (ButtonPressed(BTNCENTER,true)) exit = true;
+   }
+   Float(TREADS);
+   // wait for the orange button to be released
+   while(ButtonPressed(BTNCENTER,true));
+}
+#endif
+
+// CONDITIONAL COMPILATION
+// this code is not compiled if MASTER is defined.
+// So, when this file is included in the master JohnNXT program,
+// this version of the main is not compiled.
+// Compiling this program as stand-alone, the following
+// main is compiled.
+#ifndef MASTER
+task main()
+{
+   SetSensorLight(LIGHT);
+   SetSensorLowspeed(EYES);
+   SetSensorSound(MIC);
+   J5_HandFollow();
+}
+#endif
+

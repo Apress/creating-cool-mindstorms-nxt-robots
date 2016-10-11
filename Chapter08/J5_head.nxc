@@ -1,0 +1,80 @@
+#ifndef _J5_HEAD_NXC
+#define _J5_HEAD_NXC
+
+#include "J5Defs.nxc"
+
+short head_state;
+
+// head FSM, defined as a decision table
+const int head_angles[] = {   0, -360, -720,
+                            360,    0, -360,
+                            720,  360,    0 };
+
+sub Head( short new_state, unsigned short factor )
+{
+   int angle;
+   if (head_state == UNKNOWN)
+   {
+      // center the head using stall detection
+      int t;
+      t = MotorRotationCount(HEAD);
+      OnFwd(HEAD,50);//50
+      Wait(80);
+      while( abs(t-MotorRotationCount(HEAD))>5 )
+      {
+         t = MotorRotationCount(HEAD);
+         Wait(20);
+      }
+      Off(HEAD);
+      RotateMotorPID(HEAD,90,-440,60,20,40);
+   }
+   // turn the head accordingly to the new_state passed as arg
+   else
+   {
+      angle = head_angles[new_state+3*head_state];
+      angle /= factor;
+      RotateMotorPID(HEAD,90,angle,60,20,40);
+   }
+   head_state = new_state;
+}
+
+sub StepHead( byte dir )
+{
+   // step RIGHT: LEFT->CENTER, CENTER->RIGHT, RIGHT->STILL
+   // step LEFT :  LEFT->STILL, CENTER->LEFT, RIGHT->CENTER
+   short new_state;
+   if (dir == LEFT)
+   {
+      new_state = head_state-1;
+      if (new_state<LEFT) new_state = LEFT;
+   }
+   if (dir == RIGHT)
+   {
+      new_state = head_state+1;
+      if (new_state>RIGHT) new_state = RIGHT;
+   }
+   Head(new_state,1);
+}
+#endif
+
+
+
+// CONDITIONAL COMPILATION
+// this code is not compiled if MASTER is defined.
+// So, when this file is included in the master JohnNXT program,
+// this version of the main is not compiled.
+// Compiling this program as stand-alone, the following
+// main is compiled.
+#ifndef MASTER
+#ifndef HANDFOLLOW
+#ifndef REMOTECONTROL
+task main()
+{
+   head_state = UNKNOWN;
+   Head(CENTER,1);
+   Wait(200);
+}
+#endif
+#endif
+
+#endif

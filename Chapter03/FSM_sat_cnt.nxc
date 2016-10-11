@@ -1,0 +1,118 @@
+#define TIMEOUT 1300 //ms
+
+#define STATE_0       0
+#define STATE_1       1
+#define STATE_2       2
+#define STATE_3       3
+#define STATE_4       4
+#define STATE_5       5
+#define TIMER_ELAPSE  0x0A
+#define TOUCH         0x0B
+
+#define LENGTH        15
+#define MARGIN        4
+#define OFFSET        LENGTH+MARGIN
+
+unsigned long time_offset;
+
+void ResetTimer ()
+{
+   time_offset = CurrentTick();
+   TextOut(5,LCD_LINE7,"Reset");
+}
+
+short WaitEvent()
+{
+   short event = 0;
+   while ( event==0 )
+   {
+      if (ButtonPressed(BTNCENTER,true)==1)
+      {
+         event = TOUCH;
+         while(ButtonPressed(BTNCENTER,true)==1);
+         TextOut(5,LCD_LINE6,"Button");
+         break;
+      }
+      else if (CurrentTick() > time_offset + TIMEOUT)
+      {
+         event = TIMER_ELAPSE;
+         TextOut(5,LCD_LINE6,"Elapse");
+         break;
+      }
+   }
+   return event;
+}
+
+sub Meter(short level)
+{
+   for(short i=0; i<level; i++)
+   {
+      //RectOut(MARGIN+OFFSET*i,LCD_LINE4,LENGTH,LENGTH,false); //draw empty rectangles
+
+      for (short j=0; j<=LENGTH; j++) //draw filled rectangles
+      {
+         LineOut(MARGIN+OFFSET*i+j,LCD_LINE4,MARGIN+OFFSET*i+j,LCD_LINE4+LENGTH);
+      }
+   }
+}
+
+task main()
+{
+   short state = STATE_0; //entry state
+   short event;
+   while(true)
+   {
+      switch(state)
+      {
+         case STATE_0:
+            ClearScreen();
+            //wait for events
+            event = WaitEvent();
+            if (event == TOUCH) state = STATE_1;
+            if (event == TIMER_ELAPSE) state = STATE_0;
+            ResetTimer();
+            break;
+         case STATE_1:
+            ClearScreen();
+            Meter(1);
+            event = WaitEvent();
+            if (event == TOUCH) state = STATE_2;
+            if (event == TIMER_ELAPSE) state = STATE_0;
+            ResetTimer();
+            break;
+         case STATE_2:
+            ClearScreen();
+            Meter(2);
+            event = WaitEvent();
+            if (event == TOUCH) state = STATE_3;
+            if (event == TIMER_ELAPSE) state = STATE_1;
+            ResetTimer();
+            break;
+         case STATE_3:
+            ClearScreen();
+            Meter(3);
+            event = WaitEvent();
+            if (event == TOUCH) state = STATE_4;
+            if (event == TIMER_ELAPSE) state = STATE_2;
+            ResetTimer();
+            break;
+         case STATE_4:
+            ClearScreen();
+            Meter(4);
+            event = WaitEvent();
+            if (event == TOUCH) state = STATE_5;
+            if (event == TIMER_ELAPSE) state = STATE_3;
+            ResetTimer();
+            break;
+         case STATE_5:
+            ClearScreen();
+            Meter(5);
+            event = WaitEvent();
+            if (event == TOUCH) state = STATE_5;
+            if (event == TIMER_ELAPSE) state = STATE_4;
+            ResetTimer();
+            break;
+      }
+      Wait(100);
+   }
+}

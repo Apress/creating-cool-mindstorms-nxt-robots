@@ -1,0 +1,124 @@
+#ifndef _J5_LINEFOLLOW_NXC
+#define _J5_LINEFOLLOW_NXC
+
+#include "J5Defs.nxc"
+
+#define TOLERANCE 3
+
+short LFLW_low=30, LFLW_high=50;
+
+void TuneLightSensor ()
+{
+   bool done = false;
+   SetSensorLight(LIGHT);
+   ClearScreen();
+   // display menu
+   TextOut(8,LCD_LINE1,"Line Following");
+   TextOut(0,LCD_LINE6," Set        Set");
+   TextOut(0,LCD_LINE7,"dark   OK  light");
+
+   until(done)
+   {
+      TextOut(0,LCD_LINE3,"Reading:         ");
+      NumOut(50,LCD_LINE3,Sensor(LIGHT));
+
+      // if you press the NXT left arrow button...
+      if (ButtonPressed(BTNLEFT,true))
+      {
+         // ...you are setting the low threshold
+         LFLW_low = Sensor(LIGHT) + TOLERANCE;
+         ClearLine(LCD_LINE8);
+         NumOut(8,LCD_LINE8,LFLW_low);
+         NumOut(75,LCD_LINE8,LFLW_high);
+         while (ButtonPressed(BTNLEFT,true));
+      }
+
+      // if you press the NXT right arrow button...
+      if (ButtonPressed(BTNRIGHT,true))
+      {
+         // ...you are setting the high threshold
+         LFLW_high= Sensor(LIGHT) - TOLERANCE;
+         ClearLine(LCD_LINE8);
+         NumOut(8,LCD_LINE8,LFLW_low);
+         NumOut(75,LCD_LINE8,LFLW_high);
+         while (ButtonPressed(BTNRIGHT,true));
+      }
+      // if you press the NXT orange button, you accept the changes
+      if (ButtonPressed(BTNCENTER,true)) done = true;
+      Wait(10);
+   }
+   Wait(1000);
+   ClearScreen();
+}
+
+sub J5_LineFollow()
+{
+   bool exit = false;
+   short reading;
+   
+   // call the initialization function to set the thresholds
+   TuneLightSensor();
+
+   until (exit)
+   {
+      // read the light sensor
+      reading  = Sensor(LIGHT);
+
+      // if the sensor sees white (pad)
+      if ( reading >= LFLW_high )
+      {
+         TextOut(20,LCD_LINE5,"WHITE ");
+         Float(TREADS);
+         // turn left
+         OnRevSync(TREADS,60,70);
+      }
+
+      // if the sensor sees gray (line edge)
+      if ( reading < LFLW_high && reading > LFLW_low )
+      {
+         TextOut(20,LCD_LINE5,"GREY  ");
+         Float(TREADS);
+         // go straight
+         OnRevSync(TREADS,90,0);
+      }
+      // if the sensor sees black (line)
+      if ( reading <= LFLW_low )
+      {
+         TextOut(20,LCD_LINE5,"BLACK ");
+         Float(TREADS);
+         // turn right
+         OnRevSync(TREADS,60,-70);
+      }
+      // display the actual sensor reading
+      TextOut(0,LCD_LINE3,"  Reading:         ");
+      NumOut(60,LCD_LINE3,reading);
+      // if you press the orange button, the algorithm ends
+      if (ButtonPressed(BTNCENTER,true)) exit = true;
+      Wait(100);
+   }
+   Float(TREADS);
+   // turn off light sensor LED
+   SetSensorTouch(LIGHT);
+   // wait for the orange button to be released
+   while(ButtonPressed(BTNCENTER,true));
+}
+
+// CONDITIONAL COMPILATION
+// this code is not compiled if MASTER is defined.
+// So, when this file is included in the master JohnNXT program,
+// this version of the main is not compiled.
+// Compiling this program as stand-alone, the following
+// main is compiled.
+#ifndef MASTER
+task main ()
+{
+   J5_LineFollow();
+}
+#endif
+
+
+#endif
+
+
+
+

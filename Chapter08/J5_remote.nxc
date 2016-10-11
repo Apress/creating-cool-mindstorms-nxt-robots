@@ -1,0 +1,257 @@
+//remote controlled JohnNXT
+
+#define REMOTECONTROL
+#include "J5Defs.nxc"
+#include "J5_sounds.nxc"
+#include "J5_head.nxc"
+#include "HSlib.nxc"
+#include "J5_comm.nxc"
+
+#define L_INFO_PX 20
+#define R_INFO_PX 70
+
+#define SPEED1 (25)
+#define SPEED2 (50)
+#define SPEED3 (80)
+#define SPEED4 (100)
+
+#define STOP   0
+#define FWD1   1
+#define FWD2   2
+#define FWD3   3
+#define FWD4   4
+#define REV1   5
+#define REV2   6
+#define REV3   7
+#define REV4   8
+
+#define MODE0 0
+#define MODE1 1
+
+sub ShowCommands(byte Lcmd, byte Rcmd, byte triggers)
+{
+   string arrows[];
+   string Rstring, Lstring;
+   ClearScreen();
+   // fill the arrows array with the listed strings
+   ArrayBuild(arrows,"o",">",">>",">>>",">>>>","<","<<","<<<","<<<<");
+   // prepare the Xstring to be shown,
+   // according to the right and left command values.
+   // The Xstring is an element of the arrows array.
+   Rstring = arrows[Rcmd];
+   Lstring = arrows[Lcmd];
+   // show the string on the screen.
+   TextOut(R_INFO_PX,LCD_LINE2,Rstring);
+   TextOut(L_INFO_PX-5*StrLen(Lstring),LCD_LINE2,Lstring);
+   if (triggers&1) TextOut(0,LCD_LINE3,"Open");
+   if (triggers&2) TextOut(0,LCD_LINE3,"Close");
+}
+
+// this function convert the received command
+// opcode into the corresponding motor speed
+short DecodeSpeed(short cmd)
+{
+   if ( cmd == STOP ) return 0;
+   if ( cmd == FWD1 ) return SPEED1;
+   if ( cmd == FWD2 ) return SPEED2;
+   if ( cmd == FWD3 ) return SPEED3;
+   if ( cmd == FWD4 ) return SPEED4;
+   if ( cmd == REV1 ) return -SPEED1;
+   if ( cmd == REV2 ) return -SPEED2;
+   if ( cmd == REV3 ) return -SPEED3;
+   if ( cmd == REV4 ) return -SPEED4;
+}
+
+// this function convert the received command
+// opcode into the corresponding direction.
+// This is handy to use joysticks as one-shot digital controls
+short DecodeDir(short cmd)
+{
+   if ( cmd == STOP ) return 0;
+   if ( cmd == FWD1 ) return 0;
+   if ( cmd == FWD2 ) return 1;
+   if ( cmd == FWD3 ) return 1;
+   if ( cmd == FWD4 ) return 1;
+   if ( cmd == REV1 ) return 0;
+   if ( cmd == REV2 ) return -1;
+   if ( cmd == REV3 ) return -1;
+   if ( cmd == REV4 ) return -1;
+}
+
+// control movements of the first mode (treads and arms)
+sub Mode_zero_actions(short Lcmd, short Rcmd, byte function)
+{
+   if (Rcmd == STOP) Float(R_TREAD);
+   if (Lcmd == STOP) Float(L_TREAD);
+   if (Rcmd == Lcmd)
+   {
+      OnRevSync(TREADS,DecodeSpeed(Rcmd),0);
+   }
+   else
+   {
+      OnRev(R_TREAD,DecodeSpeed(Rcmd));
+      OnRev(L_TREAD,DecodeSpeed(Lcmd));
+   }
+   if ( function == 1 )
+   {
+      Remote(A_STEP_OPEN,ACK_DONE);
+   }
+   if ( function == 2 )
+   {
+      Remote(A_STEP_CLOSE,ACK_DONE);
+   }
+}
+
+// this variables contain the old received commmand
+// to avoid the machine-gun effect
+byte Rold, Lold, Fold;
+
+// this is a bi-stable state variable to toggle the laser
+bool laser_FF;
+
+// control movements of the second mode (head,torso, laser and speech)
+sub Mode_one_actions(byte Lcmd, byte Rcmd, byte function)
+{
+   // this macro (defined in J5Defs) clears a text line on screen
+   ClearLine(2);
+   short R_action, L_action;
+   // get the displacement direction of the joysticks
+   R_action = DecodeDir(Rcmd);
+   L_action = DecodeDir(Lcmd);
+   // activate one-shot movements, only if the actual Xaction value
+   // is different from before: this eliminates machine-gun effect.
+   // To activate the same function again, you must release the trigger
+   // of the joystick.
+   if (R_action!=Rold)
+   {
+      if (R_action>0)
+      {
+         TextOut(0,LCD_LINE2,"Head Left"); //R jstk fwd
+         StepHead(RIGHT);
+      }
+      if (R_action<0)
+      {
+         TextOut(0,LCD_LINE2,"Head Right"); //R jstk rev
+         StepHead(LEFT);
+      }
+   }
+   if (L_action!=Lold)
+   {
+      if (L_action>0)
+      {
+         TextOut(0,LCD_LINE2,"Raise Torso"); //L jstk fwd
+         Remote(T_STEPUP,ACK_DONE);
+      }
+      if (L_action<0)
+      {
+         TextOut(0,LCD_LINE2,"Lower Torso"); //L jstk rev
+         Remote(T_STEPDOWN,ACK_DONE);
+      }
+   }
+   ClearLine(3);
+   if ( function==1 && function!=Fold)
+   {
+      TextOut(0,LCD_LINE3,"Speech");
+      // Play a random phrase without waiting for completion
+      Sound(S_RANDOM,false);
+   }
+   if ( function==2 && function!=Fold)
+   {
+       if ( laser_FF )
+       {
+          TextOut(0,LCD_LINE3,"Laser disarmed");
+          Remote(L_OFF,ACK_DONE);
+          Remote(L_UP,ACK_DONE);
+       }
+       else
+       {
+          TextOut(0,LCD_LINE3,"Laser armed  ");
+          Remote(L_DOWN,ACK_DONE);
+          Remote(L_ON,ACK_DONE);
+       }
+       laser_FF = !laser_FF;
+   }
+   // update the old commands
+   Fold = function;
+   Rold = R_action;
+   Lold = L_action;
+}
+
+// this subroutine is called by JohnNXT master program
+sub J5_Remote_Control()
+{
+   short Rcmd, Lcmd, function, mode;
+   int command;
+   head_state = UNKNOWN;
+   Head(CENTER,1);
+   laser_FF = false;
+   bool exit = false;
+   ClearScreen();
+   TextOut(10,LCD_LINE1,"JohnNXT R/C");
+   // repeat until the exit variable becomes true
+   until (exit)
+   {
+      // if the Bluetooth buffer is not empty
+      if (ReceiveRemoteNumber(1,true,command) != STAT_MSG_EMPTY_MAILBOX) {
+            // decode command
+            mode = (command/1000);
+            Rcmd = (command/10)%10;
+            Lcmd = (command/100)%10;
+            function = ((command%1000)%100)%10;
+         // move the robot according to the mode
+         if (mode == MODE0)
+         {
+            ShowCommands(Lcmd,Rcmd,function);
+            Mode_zero_actions(Lcmd,Rcmd,function);
+         }
+         if (mode == MODE1)
+         {
+            Mode_one_actions(Lcmd,Rcmd,function);
+         }
+      }
+      Wait(50);
+      // if the orange NXT button is pressed, exit is set to true,
+      // and the next loop will be aborted
+      if (ButtonPressed(BTNCENTER,true)) exit = true;
+   }
+   // wait for the orange button to be released
+   while(ButtonPressed(BTNCENTER,true));
+}
+
+// CONDITIONAL COMPILATION
+// this code is not compiled if MASTER is defined.
+// So, when this file is included in the master JohnNXT program,
+// this version of the main is not compiled.
+// Compiling this program as stand-alone, the following
+// main is compiled.
+#ifndef MASTER
+task main ()
+{
+   short Rcmd, Lcmd, function, mode;
+   short in;
+   head_state = UNKNOWN;
+   Head(CENTER,1);
+   laser_FF = false;
+   SetHSPort();
+   while(true)
+   {
+      if (ReceiveRemoteNumber(1,true,in) != STAT_MSG_EMPTY_MAILBOX) {
+            mode = (in/1000);
+            Rcmd = (in/10)%10;
+            Lcmd = (in/100)%10;
+            function = ((in%1000)%100)%10;
+         if (mode == MODE0)
+         {
+            ShowCommands(Lcmd,Rcmd,function);
+            Mode_zero_actions(Lcmd,Rcmd,function);
+         }
+         if (mode == MODE1)
+         {
+            Mode_one_actions(Lcmd,Rcmd,function);
+         }
+      }
+      Wait(50);
+   }
+}
+#endif
+

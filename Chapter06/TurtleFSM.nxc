@@ -1,0 +1,568 @@
+/* NXT Turtle multi tasking program,
+   featuring autonomous behaviour
+   implementation with a finite state machine */
+
+// I/O aliases
+#define LEGS OUT_AC
+#define HEAD OUT_B
+#define EYES IN_2
+#define MIC IN_1
+#define LINE IN_3
+
+// various constant definitions
+#define NEAR 10
+#define FAR 30
+#define IN -1
+#define OUT 1
+#define SOUND_HEAD_OUT 1
+#define SOUND_HEAD_IN 2
+#define SOUND_YAWN 3
+
+// mean times definitions
+#define BOREDOM_MEAN_TIME     8
+#define TURN_MEAN_TIME        4
+#define SLEEP_MEAN_TIME       4
+#define WANDER_MEAN_TIME      10
+#define RECOVERY_MEAN_TIME    3
+#define TAMING_MEAN_TIME      3
+#define HUNGER_MEAN_TIME      6
+
+// possible moods of the turtle
+#define QUIET      0
+#define BORED      1
+#define SCARED     2
+#define ANNOYED    3
+#define HUNGRY     4
+#define TRUSTFUL   5
+
+// macros
+#define ClearLine(line)    TextOut(0,line,"                   ")
+#define TIMER (CurrentTick()-timer_start)
+
+// global variables
+bool near_object, loud_noise;
+mutex sound_sem;
+unsigned long timer_start;
+short head_state, times_bored, times_scared, mood;
+
+//===================================================================//
+//                  TIMER RELATED FUNCTIONS                          //
+//===================================================================//
+
+int RandomTime( int mean, int variation, int scale )
+{
+   // generates a random number with given mean
+   // and given variation
+   // e.g.: variation = 2
+   // possible outputs = scale*{mean-2, mean-1, mean, mean+1 ,mean+2}
+   return ( mean + ( variation - Random(2*variation+1) ) )*scale;
+}
+
+void ResetTimer()
+{
+   timer_start = CurrentTick();
+}
+
+//===================================================================//
+//                       SUBROUTINES TO WALK                         //
+//===================================================================//
+
+sub GoStraight( int speed )
+{
+   OnFwdSync(LEGS,speed,0);
+}
+
+sub GoBack( int speed )
+{
+   OnRevSync(LEGS,speed,0);
+}
+
+sub TurnRight( int speed )
+{
+   OnRevSync(LEGS,abs(speed),80);
+}
+
+sub TurnLeft( int speed )
+{
+   OnRevSync(LEGS,abs(speed),-80);
+}
+
+//===================================================================//
+//           SUBROUTINES TO MOVE THE HEAD, EAT or TREMBLE            //
+//===================================================================//
+
+// subroutine to move head IN or OUT
+sub MoveHead ( short position, bool scared )
+{
+   int t;
+   // move head only if the desired position
+   // is different from the actual state
+   if (head_state != position)
+   {
+      // play a sound only if the turtle
+      // is moving the head because it is scared;
+      // this is controlled by the scared parameter
+      if ( scared )
+      {
+         if(position==IN)
+            PlayFile("falling.rso");
+         else
+            PlayFile("raising.rso");
+      }
+         
+      t = MotorRotationCount(HEAD);
+      // start motor in desired direction
+      if ( scared )
+         OnFwd(HEAD,80*sign(position));
+      else
+         OnFwd(HEAD,55*sign(position));
+         
+      Wait(80);
+      // detect if the motor is stalled
+      while( abs(t-MotorRotationCount(HEAD))>4 )
+      {
+         t = MotorRotationCount(HEAD);
+         Wait(50);
+      }
+      Off(HEAD);
+
+      // update head state with actual position
+      head_state = position;
+   }
+}
+
+// the turtle eats
+sub Eat()
+{
+   repeat(Random(3)+1)
+   {
+      repeat(3)
+      {
+         // biting
+         PlayFile("chew.rso");
+         OnFwd(HEAD,50);
+         Wait(200);
+         Float(HEAD);
+         // chewing
+         Wait(RandomTime(2,1,100));
+      }
+      until(SoundFlags()==SOUND_FLAGS_IDLE);
+      Wait(400);
+      // gulping
+      PlayFile("gulp.rso");
+      until(SoundFlags()==SOUND_FLAGS_IDLE);
+      Wait(RandomTime(2,2,100));
+   }
+   // and burping
+   Wait(RandomTime(1,1,1000));
+   PlayFile("burp.rso");
+   until(SoundFlags()==SOUND_FLAGS_IDLE);
+   Wait(10);
+}
+
+// the legs tremble when the turtle is in SCARED mood
+sub Tremble( int times )
+{
+   repeat( times )
+   {
+      OnFwd(LEGS,100);
+      Wait(70);
+      Off(LEGS);
+      OnRev(LEGS,100);
+      Wait(70);
+      Off(LEGS);
+   }
+}
+
+//===================================================================//
+//      FUNCTIONS TO INITIALIZE THE TURTLE AND SHOW ITS MOOD         //
+//===================================================================//
+
+void Turtle_init ()
+{
+   TextOut(0,LCD_LINE1,"Initializing...");
+   SetSensorSound(MIC);
+   SetSensorLowspeed(EYES);
+   // initial mood
+   mood = QUIET;
+   MoveHead(OUT,true);
+   Wait(500);
+   ClearScreen();
+}
+
+// displays the mood of the turtle on NXT screen
+void ShowMood(short m)
+{
+   TextOut(20,LCD_LINE1,"NXT Turtle");
+   TextOut(0,LCD_LINE3,"mood:            ");
+   TextOut(0,LCD_LINE4,"-----------------------");
+   switch(m)
+   {
+      case QUIET:  TextOut(30,LCD_LINE3,"QUIET    "); break;
+      case BORED:  TextOut(30,LCD_LINE3,"BORED  "); break;
+      case SCARED:  TextOut(30,LCD_LINE3,"SCARED  "); break;
+      case HUNGRY:  TextOut(30,LCD_LINE3,"HUNGRY "); break;
+      case ANNOYED:  TextOut(30,LCD_LINE3,"ANNOYED "); break;
+      case TRUSTFUL:  TextOut(30,LCD_LINE3,"TRUSTFUL"); break;
+   }
+}
+
+//===================================================================//
+//      SUBROUTINES DESCRIBING ACTIONS FOR THE VARIOUS MOODS         //
+//===================================================================//
+
+sub QuietMoodActions()
+{
+   int boredom_time, hunger_time;
+   bool event = false;
+   int bored_or_hungry;
+   // turtle can get bored or hungry
+   bored_or_hungry = Random(3);
+   // random time after which turtle gets bored
+   boredom_time = RandomTime(BOREDOM_MEAN_TIME, 2, SEC_1);
+   // random time after which turtle gets hungry
+   hunger_time = RandomTime(HUNGER_MEAN_TIME, 4, SEC_1);
+
+   // turtle stays still...
+   MoveHead(OUT,false);
+
+   ResetTimer();
+   until (event)
+   {
+      // ... hungry (with probability 1/3)...
+      if (bored_or_hungry == 1 && TIMER > hunger_time )
+      {
+         mood = HUNGRY;
+         event = true;
+      }
+      // ...until it gets bored (with probability 2/3)
+      else if ( TIMER > boredom_time )
+      {
+         mood = BORED;
+         event = true;
+      }
+      // ...or a frightening event occurs
+      if (near_object || loud_noise)
+      {
+         mood = SCARED;
+         event = true;
+      }
+   }
+}
+
+sub HungryMoodActions()
+{
+   int turn_time;
+   // reset boredom counter
+   times_bored = 0;
+   MoveHead(OUT,false);
+   ResetTimer();
+   
+   // turns randomly to look for grass
+   turn_time = RandomTime(TURN_MEAN_TIME, 4, MS_500);
+   if(Random(2)==1)
+      TurnRight(80);
+   else
+      TurnLeft(80);
+   Wait(turn_time);
+   Float(LEGS);
+
+   Eat();
+   
+   // and then return in QUIET mood
+   mood = QUIET;
+}
+
+sub BoredMoodActions()
+{
+   int sleep_time;
+   bool event = false;
+   short sweet_waking = 0;
+
+   // increase the boredom counter and show it
+   times_bored++;
+   TextOut(0,LCD_LINE5,"bored:            ");
+   NumOut(40,LCD_LINE5,times_bored);
+
+   // turtle yawns and prepares to sleep
+   PlayFile("yawn.rso");
+   until(SoundFlags()==SOUND_FLAGS_IDLE);
+   MoveHead(IN,false);
+
+   // turtle sleeps until sleep_time has elapsed
+   // or a loud noise occurs
+   sleep_time = RandomTime(SLEEP_MEAN_TIME, 2, SEC_1);
+   PlayFileEx("snore.rso",4,true); // playing a loop
+
+   ResetTimer();
+   until (event)
+   {
+      if (TIMER>sleep_time)
+      {
+         event = true;
+         // too much boredom makes the turtle hungry
+         if (times_bored>1)
+            mood = HUNGRY;
+         else
+            mood = QUIET;
+      }
+      // if the turtle wakes up suddenly, it gets scared
+      else if (loud_noise)
+      {
+         mood = SCARED;
+         event = true;
+      }
+   }
+   StopSound(); //stop snoring
+   ClearLine(LCD_LINE5);
+}
+
+
+sub ScaredMoodActions()
+{
+   int recovery_time;
+   MoveHead(IN,true);
+   times_scared++;
+   // increase the scares counter and display it
+   TextOut(0,LCD_LINE5,"scared:            ");
+   NumOut(43,LCD_LINE5,times_scared);
+
+   // time to recover from scare
+   recovery_time = RandomTime(RECOVERY_MEAN_TIME, 1, SEC_1);
+   //while the time to recover from scare has not passed
+   until (TIMER>recovery_time)
+   {
+      Tremble(Random(2)+2);
+      Wait(200);
+      // if the scares rage on...
+      if( loud_noise )
+      {
+         ResetTimer();
+         // increase the scares counter and display it
+         times_scared++;
+         TextOut(0,LCD_LINE5,"scared:            ");
+         NumOut(43,LCD_LINE5,times_scared);
+      }
+   }
+
+   // if the sight is clear, turtle returns in QUIET mood
+   if (near_object)
+      mood = TRUSTFUL;
+   // else if someone is near, it becomes a bit less shy
+   else
+      mood = QUIET;
+   // however, if too scared, it decides to escape
+   if (times_scared>2)
+      mood = ANNOYED;
+   ClearLine(LCD_LINE5);
+}
+
+sub TrustfulMoodActions()
+{
+   int eating_max_times = Random(2)+1;
+   int eating_counter = 0;
+   short event = 0;
+   OnFwdReg(HEAD,5,OUT_REGMODE_SPEED);
+   ResetTimer();
+   // turtle tries to get the head out in a shy way
+   while( event == 0  )
+   {
+      if (TIMER>2500)
+      {
+         event = 1;
+      }
+      // but you can scare it again
+      if (loud_noise)
+      {
+         event = -1;
+      }
+   }
+   Off(HEAD);
+   // if the head is completely out before another scare,
+   if ( event == 1 )
+   {
+      MoveHead(OUT,false);
+      while (near_object && eating_counter<=eating_max_times)
+      {
+         // it accepts food from you
+         Eat();
+         eating_counter++;
+      }
+      // until you go away
+      while(near_object);
+      mood = QUIET;
+   }
+   // if the turtle is scared again while getting the head out,
+   // goes in SCARED mood again
+   else
+   {
+      head_state = OUT;
+      MoveHead(IN,true);
+      mood = SCARED;
+   }
+}
+
+sub AnnoyedMoodActions()
+{
+   int turn_time, wander_time;
+   // reset the scares and boredom counter
+   times_scared = 0;
+   // the boredom has passed, reset the counter
+   times_bored = 0;
+   // the turtle decides to escape
+   // it draws back while it sees something near
+   GoBack(100);
+   while(near_object);
+   Float(LEGS);
+   // shake the head
+   MoveHead(OUT,true);
+   MoveHead(IN,true);
+   MoveHead(OUT,true);
+
+   // then turns randomly
+   turn_time = RandomTime(TURN_MEAN_TIME, 2, SEC_1);
+   wander_time = RandomTime(WANDER_MEAN_TIME, 3, SEC_1);
+   ResetTimer();
+   // choose between right and left
+   if(Random(2)==1)
+      TurnRight(100);
+   else
+      TurnLeft(100);
+      
+   Wait(turn_time);
+   Float(LEGS);
+   
+   ResetTimer();
+   // ...and walks straight quickly
+   GoStraight(100);
+   while( TIMER<wander_time/3 && !near_object );
+   // but then gets tired,
+   GoStraight(70);
+   while( TIMER<2*wander_time/3 && !near_object );
+   // so tired...
+   GoStraight(40);
+   while( TIMER<wander_time && !near_object );
+   // ...that it stops after a while!
+   Float(LEGS);
+   mood = QUIET;
+}
+
+//===================================================================//
+//       TURTLE TASKS: main, finite state machine, monitors          //
+//===================================================================//
+
+task main()
+{
+   Turtle_init ();
+   // exits to the other tasks including Follows(main) statement
+}
+
+task FSM ()
+{
+   Follows(main);
+   // finite state machine loop
+   while(true)
+   {
+      ShowMood(mood);
+      // the turtle acts accordingly to its actual mood.
+      // The order in which the moods are listed in the
+      // switch structure is not influent
+      switch(mood)
+      {
+         case QUIET:
+            QuietMoodActions();
+         break;
+         
+         case HUNGRY:
+            HungryMoodActions();
+         break;
+
+         case BORED:
+            BoredMoodActions();
+         break;
+         
+         case SCARED:
+            ScaredMoodActions();
+         break;
+
+         case TRUSTFUL:
+            TrustfulMoodActions();
+         break;
+
+         case ANNOYED:
+            AnnoyedMoodActions();
+         break;
+    }
+  }
+}
+
+// this task monitors the noise level around.
+// its reading is used only when the legs motors
+// are still; otherwise their noise would saturate the sensor
+// and the turtle would not be able to sense lower noises.
+task NoiseMonitor ()
+{
+   Follows(main);
+   int s;
+   while (true)
+   {
+      s = Sensor(MIC);
+      if (s > 75)
+      {
+         loud_noise = true;
+         Wait(200);
+         until (Sensor(MIC)<25);
+      }
+      loud_noise = false;
+      TextOut(0,LCD_LINE7,"noise:            ");
+      NumOut(35,LCD_LINE7,s);
+      NumOut(60,LCD_LINE7,loud_noise);
+      Wait(100);
+   }
+}
+
+// this task monitors the ultrasonic sensor.
+// its output is the near_object variable, filtered
+// by an hysteresis cycle
+task View ()
+{
+   Follows(main);
+   int d, d1, d2;   // contain the distance readings
+   while (true)
+   {
+      // first reading
+      d1 = SensorUS (EYES);
+      Wait(50);
+      // second reading
+      d2 = SensorUS (EYES);
+      // d is the average of d1 and d2
+      d = (d1 + d2)/2;
+      if (d < NEAR)
+         near_object = true;
+      else if ( d > FAR )
+         near_object = false;
+      TextOut(0,LCD_LINE6,"distance:            ");
+      NumOut(53,LCD_LINE6,d);
+      NumOut(80,LCD_LINE6,near_object);
+   }
+}
+
+// this task shows the turtle's "biological clock"
+task ShowTimer ()
+{
+   string time, sec, sec_tenth;
+   Follows(main);
+   while(true)
+   {
+      time = "bioclock: ";
+      sec = NumToStr(TIMER/1000);
+      sec_tenth = NumToStr((TIMER%1000)/100);
+      // concatenate the strings to show
+      // "bioclock: <seconds>.<tenths> s" on screen
+      time = StrCat( time, sec, ".", sec_tenth, " s" );
+      ClearLine(LCD_LINE8);
+      TextOut(0,LCD_LINE8,time);
+      Wait(200);
+   }
+}
+

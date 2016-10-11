@@ -1,0 +1,146 @@
+#define HALF_STEP 540
+#define FULL_STEP 1080
+#define RIGHT_LEG OUT_B
+#define LEFT_LEG OUT_A
+#define BOTH_LEGS OUT_AB
+#define EYES IN_1
+
+#define NEAR 12 //cm
+#define FAR  40 //cm
+#define LEFT -1
+#define RIGHT 1
+#define FORWARD 0
+
+#define WALK_SPEED 90
+#define ALIGN_SPEED 60
+#define TURN_TIME 100
+#define BACKUP_TIME 800
+
+#define TURN_FILE "Turn.rso"
+#define LEFT_FILE "Left.rso"
+#define RIGHT_FILE "Right.rso"
+#define FORWARD_FILE "Forward.rso"
+
+sub Biped_init ()
+{
+   ResetRotationCount (BOTH_LEGS);
+   SetSensorLowspeed (EYES);
+}
+
+void Smessage( string msg )
+{
+   TextOut(0,LCD_LINE5,"              ");
+   TextOut(0,LCD_LINE5,msg);
+}
+
+void Nmessage( int n )
+{
+   TextOut(0,LCD_LINE5,"              ");
+   NumOut(0,LCD_LINE5,n);
+}
+
+sub AnnounceDir ( int dir )
+{
+   if (dir!=0)
+   {
+      PlayFileEx (TURN_FILE, 4, false);
+      Wait(450);
+   }
+   if (dir==LEFT)
+      PlayFileEx (LEFT_FILE, 4, false);
+   if (dir==FORWARD)
+      PlayFileEx (FORWARD_FILE, 4, false);
+   if (dir==RIGHT)
+      PlayFileEx (RIGHT_FILE, 4, false);
+   Wait(200);
+}
+
+sub RealignLegs()
+{
+   Smessage("Realigning");
+   long right_count, left_count;
+   //computes angular distance from the initial leg position
+   right_count = abs(MotorRotationCount(RIGHT_LEG) % FULL_STEP);
+   left_count = abs(MotorRotationCount(LEFT_LEG) % FULL_STEP);
+
+   //choose the direction to align the right leg,
+   //turning motor the least possible
+   if (right_count<HALF_STEP)
+      OnRev (RIGHT_LEG, ALIGN_SPEED);
+   else
+      OnFwd (RIGHT_LEG, ALIGN_SPEED);
+
+   //wait for the leg to be aligned
+   while (right_count>0)
+   {
+      right_count = abs(MotorRotationCount (RIGHT_LEG) % FULL_STEP);
+   }
+   Off(RIGHT_LEG);
+
+   //choose the direction to align the left leg,
+   //turning motor the least possible
+   if (left_count<HALF_STEP)
+      OnRev (LEFT_LEG, ALIGN_SPEED);
+   else
+      OnFwd (LEFT_LEG, ALIGN_SPEED);
+
+   //wait for the leg to be aligned
+   while (left_count>0)
+   {
+      left_count = abs(MotorRotationCount (LEFT_LEG) % FULL_STEP);
+   }
+   Off(LEFT_LEG);
+}
+
+task main ()
+{
+   int timer = 0, direction;
+   //initializes sensors and direction variable
+   Biped_init();
+   direction = FORWARD;
+   
+   while (true)
+   {
+      //tells the directions it is going to
+      AnnounceDir(direction);
+
+      //starts walking
+      OnFwdSyncEx (BOTH_LEGS, WALK_SPEED, sign(direction)*90, RESET_NONE);
+      Wait(SEC_1);
+      //waits for obstacle if going forward
+      if (direction==FORWARD)
+      {
+         while (SensorUS (EYES)>NEAR);
+      }
+      else
+      //waits for obstacle or time elapsing if turning
+      {
+         timer = 0;
+         while (SensorUS(EYES)>NEAR && timer<TURN_TIME)
+         {
+            timer++;
+         }
+      }
+      Off (BOTH_LEGS);
+      
+      //realigns legs to ground, as they were at program start
+      RealignLegs();
+      
+      //if the obstacle is still there, walk backwards...
+      if (SensorUS(EYES)<FAR)
+      {
+         OnRevSyncEx (BOTH_LEGS, WALK_SPEED, 0, RESET_NONE);
+         //...until the obstacle goes out of sight
+         while (SensorUS(EYES)<FAR);
+         Off (BOTH_LEGS);
+         RealignLegs();
+      }
+      
+      //plans to turn in a random direction if robot was going forward
+      //plans to go straight if the robot has just finished turning
+      if (direction==FORWARD) direction = 1-2*(Random(2));
+      else direction = FORWARD;
+   }
+}
+
+

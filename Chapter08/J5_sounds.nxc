@@ -1,0 +1,39 @@
+#ifndef _J5_SOUNDS_NXC
+#define _J5_SOUNDS_NXC
+
+#include "J5Defs.nxc"
+
+sub Sound( short s, bool wait_completion)
+{
+   string file;
+   short snd;
+   if (s==S_NONE)
+   {
+      StopSound();
+      return;
+   }
+   if (s == S_RANDOM) snd = 40+Random(6);
+   else snd = s;
+   switch(snd)
+   {
+      case S_ALIVE1:  file = "J5_alive1.rso"; break;
+      case S_ALIVE2:  file = "J5_alive2.rso"; break;
+      case S_COOL:  file = "J5_cool.rso"; break;
+      case S_HELLO:  file = "J5_hello.rso"; break;
+      case S_INPUT:  file = "J5_input.rso"; break;
+      case S_LOOP:  file = "J5_loop.rso"; break;
+      case S_MALFUNCTION:  file = "J5_malfunction.rso"; break;
+      default : file = "                              "; break;
+   }
+
+   //TextOut(5,LCD_LINE8,file);
+   PlayFileEx(file,4,s==S_LOOP? true:false);
+   Wait(100);
+   if (wait_completion && s!= S_LOOP)
+   {
+      until(SoundState()==SOUND_STATE_IDLE);
+      Wait(200);
+   }
+}
+
+#endif

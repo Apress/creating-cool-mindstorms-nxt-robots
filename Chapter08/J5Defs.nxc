@@ -1,0 +1,111 @@
+#ifndef _J5_DEFS_NXC
+#define _J5_DEFS_NXC
+
+// master NXT output ports
+#define TREADS OUT_AC
+#define R_TREAD OUT_A
+#define L_TREAD OUT_C
+#define HEAD OUT_B
+
+// master NXT input ports
+#define MIC IN_1
+#define LIGHT IN_2
+#define EYES IN_3
+#define COMM IN_4
+
+// slave NXT output ports
+#define TORSO OUT_A
+#define ARMS OUT_B
+#define LASER OUT_C
+
+// slave NXT input ports
+#define LASER_TIP IN_1
+
+#define NEAR 20
+#define FAR 40
+
+#define LO_NOISE 20
+#define HI_NOISE 60
+
+//head states
+#define LEFT 0
+#define CENTER 1
+#define RIGHT 2
+
+//behavior states
+
+#define ARMED           0
+#define GREETING        1
+#define HANDFOLLOW      2
+#define IDLE            3
+#define LINEFOLLOW      4
+#define MANIPULATION    5
+#define MENU            6
+#define SHOWOFF         7
+#define REMOTE_CONTROL  8
+
+#define LASP_MSG_SIZE        6
+
+//TORSO states
+#define  TORSO_ACTIONS       1
+
+#define T_DOWN              10
+#define T_MID               11
+#define T_UP                12
+#define T_UPMOST            13
+#define T_STEPUP            14
+#define T_STEPDOWN          15
+
+//ARMS states
+#define  ARMS_ACTIONS       2
+
+#define A_FOLDED            20
+#define A_UP                21
+#define A_CLOSED            22
+#define A_OPEN              23
+#define A_ROTATE            24
+#define A_STEP_OPEN         25
+#define A_STEP_CLOSE        26
+
+//LASER states
+#define  LASER_ACTIONS       3
+
+#define L_UP                30
+#define L_DOWN              31
+#define L_ON                32
+#define L_OFF               33
+#define L_BLINK             34
+
+//SOUND states
+#define S_ALIVE1            40
+#define S_ALIVE2            41
+#define S_COOL              42
+#define S_HELLO             43
+#define S_INPUT             44
+#define S_MALFUNCTION       45
+#define S_LOOP              46
+#define S_NONE              47
+#define S_RANDOM            48
+
+#define LOOP_T           SEC_4
+
+#define UNKNOWN            100
+#define ACK_ERR             65
+#define ACK_RX             109
+#define ACK_DONE           146
+#define ACK_NONE           123
+
+#define T_COMM 0
+#define T_SOUND 1
+#define T_OTHER 2
+
+#define BT_CONN 1
+
+#define ClearLine(i)  TextOut(0,(8-i)*8,"                                ")
+
+#define WaitButton(b) while(ButtonPressed(b,true));  \
+                     until(ButtonPressed(b,true))
+
+#endif
+
+

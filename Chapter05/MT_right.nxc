@@ -1,0 +1,29 @@
+mutex sound;
+
+task task1()
+{
+   while(true)
+   {
+      Acquire(sound);
+      PlayTone(1000,300);
+      Wait(600);
+      Release(sound);
+   }
+}
+
+task task2()
+{
+   while(true)
+   {
+      Acquire(sound);
+      PlayTone(500,300);
+      Wait(600);
+      Release(sound);
+   }
+}
+
+
+task main()
+{
+   Precedes(task1,task2);
+}
